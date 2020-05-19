@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!--><html lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riley Kidd - Hack in the box teaser 2015 : Forensics 1000</title>
+  <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+  <link href="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/css/lightbox.min.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/assets/css/all.css">
+  <link rel="alternate" type="application/atom+xml" title="Riley Kidd" href="http://0.0.0.0:4000/atom.xml" />
+</head>
+<body>
+  <div class="container">
+    <div class="three columns sidebar">
+      <nav>
+  <h2 id="banner"><a href="/">Riley Kidd</a></h2>
+  <div id="bio">
+    <p>Security from a different perspective</p>
+  </div>
+  <div id="social">
+    <div id="stalker">
+  
+  
+  <a title="LinkedIn" href="https://www.linkedin.com/in/rileykidd">
+    <i class="fa fa-linkedin-square"></i>
+  </a>
+  
+  
+  <a title="Send an email" href="mailto:rileykidd@protonmail.com">
+    <i class="fa fa-envelope-square"></i>
+  </a>
+  
+  
+  <a title="Atom feed" id="atom" href="/atom.xml">
+    <i class="fa fa-rss-square"></i>
+  </a>
+  
+</div>
+
+  </div>
+</nav>
+
+    </div>
+    <div class="nine columns content">
+      <h1 class="title">Hack in the box teaser 2015 : Forensics 1000</h1>
+<p class="meta">
+  April 30, 2015
+</p>
+<div id="post">
+  <p>In preparation for the Amsterdam Hack in the box CTF this year I took a look at the Forensics 1000 challenge, the description of which you can find below.</p>
+
+<blockquote>
+  <p>Pyongyang<br />
+While doing forensics on the HEAVENWEB’s server we found a possible ACTOR.<br />
+We scanned the interweb for possible traces left by this ACTOR and found an opendir containing HEAVENWEB_SCRAPE.tar.xz [sha256: 6188c47846d306f29315c5df85c507052d20e98e592e08bdf1b35b46c7f84564].<br />
+We believe they use a proprietary crypto application only known to this ACTOR.<br />
+Are you able to find the flag?<br />
+HINT: <a href="https://www.youtube.com/watch?v=zuxlLLeKZZ8" target="_blank">https://www.youtube.com/watch?v=zuxlLLeKZZ8</a></p>
+</blockquote>
+
+<p>The <code class="highlighter-rouge">HEAVENWEB_SCRAPE.tar.xz</code> archive contained 2 files:</p>
+<ul>
+  <li><code class="highlighter-rouge">HITB_FOR1000_2015: data</code></li>
+  <li><code class="highlighter-rouge">HITB2015_FOR1000.dmp: ELF 64-bit LSB core file x86-64, version 1 (SYSV)</code></li>
+</ul>
+
+<p>Running strings on the <code class="highlighter-rouge">HITB2015_FOR1000.dmp</code> file, we see it is an operating system memory dump:</p>
+<ul>
+  <li><code class="highlighter-rouge">/boot/vmlinuz-2.6.38.8-24.rs3.0.i686</code></li>
+</ul>
+
+<p>Some cursory googling, coupled with the challenge name we identify the operating system as North Korea’s RedStar. Inspecting the <code class="highlighter-rouge">HITB_FOR1000_2015</code> file we find references to a file system as well as some common encryption buzz words.</p>
+
+<p><a href="/assets/images/bokem.png" data-lightbox="1"><img src="/assets/images/bokem.png" alt="" /></a></p>
+
+<p>After this quick analysis, we watched the hint video and at around the 12.00 minute mark we see a demonstration of Red Star’s custom encryption application – <code class="highlighter-rouge">Bokem</code>.</p>
+
+<p>The video further explains <code class="highlighter-rouge">Bokem</code> is native to Red Star and requires root privileges to run.</p>
+
+<p>So, let’s install Red Star and escalate to root:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">echo</span> <span class="s1">'RUN"+=/bin/bash /tmp/root.sh"'</span> <span class="o">&gt;</span> /etc/udev/rules.d/85-hplj10xx.rules
+<span class="nb">cat</span> /tmp/root.sh
+<span class="nb">echo</span> <span class="nt">-e</span> <span class="s2">"ALL</span><span class="se">\t\A</span><span class="s2">LL=(ALL)</span><span class="se">\t</span><span class="s2">NOPASSWD: ALL"</span> <span class="o">&gt;&gt;</span> /etc/sudoers
+</code></pre></div></div>
+
+<p>Let’s fix networking while we are at it:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">rm</span> /etc/sysconfig/iptables
+</code></pre></div></div>
+
+<p>After a quick <code class="highlighter-rouge">sudo –s</code> you should be able to execute <code class="highlighter-rouge">Bokem</code> with root privileges.</p>
+
+<p><a href="/assets/images/redstar.png" data-lightbox="1"><img src="/assets/images/redstar.png" alt="" /></a></p>
+
+<p>Next we can create our own <code class="highlighter-rouge">Bokem</code> container, after which we identified that the challenge is also a <code class="highlighter-rouge">Bokem</code> container which we need to access.</p>
+
+<p>After creating our own container, we notice the <code class="highlighter-rouge">.bokem3.conf</code> file in our current directory, which contained:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[/Users/neut/Desktop/test]
+A=B
+</code></pre></div></div>
+<p>To this configuration file, we can append the container from the challenge to attempt to load it:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[/Users/neut/Desktop/HITB_FOR1000_2015]
+A=B
+</code></pre></div></div>
+
+<p><a href="/assets/images/container.png" data-lightbox="1"><img src="/assets/images/container.png" alt="" /></a></p>
+
+<p>Unsurprisingly, the challenge container <code class="highlighter-rouge">93a0c2f4</code> requires a password.</p>
+
+<p>Given this is a forensics challenge, let’s assume we can find what we need in the challenge. So, let’s mount our own container and dump our machine memory. Assuming you are using a virtual machine, you can do this by simply taking the <code class="highlighter-rouge">.vmem</code> file of a snapshot.</p>
+
+<p>So now we have the following:</p>
+<ul>
+  <li>Our container file, to which we know the password;</li>
+  <li>Our memory dump, including a running and decrypted container;</li>
+  <li>The challenge container file, which we want to decrypt and do not know the password;</li>
+  <li>The challenge memory dump, hopefully including a running and decrypted container.</li>
+</ul>
+
+<p>Let’s start by analysing our own container.</p>
+
+<p>Looking at our own container with the name and password of <code class="highlighter-rouge">test</code> we notice in the header:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>098f6bcd4621d373cade4e832627b4f6test
+</code></pre></div></div>
+
+<p>Which is the md5 of our password, followed by our container name.</p>
+
+<p>Similarly, in the challenge container we notice in the header:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>5135c956f0d1dbacaaaabebc7b3a659f93a0c2f4
+</code></pre></div></div>
+
+<p>Which is the md5 of the container password (which we couldn’t crack), followed by the container name.</p>
+
+<p>So we need some more information from the challenge container, let’s take another look at our running container on Red Star.</p>
+
+<p><code class="highlighter-rouge">Dmsetup</code> is a low level logical volume management tool. <code class="highlighter-rouge">Dmsetup</code> can be used to create and remove devices, get information about devices or reload tables. Using the <code class="highlighter-rouge">dmsetup</code> tool we can gain some information about the currently mapped devices on the system. Luckily, <code class="highlighter-rouge">dmsetup</code> also supports displaying of the encryption keys used.</p>
+
+<p>Let’s take a look at our mapped container and its associated encryption key:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>dmsetup table <span class="nt">-showkeys</span> bokemcrypt_000: 0 102399 crypt pilsung-cbc-essiv:sha256 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 0 7:0 1
+</code></pre></div></div>
+
+<p>So, our encryption key is as follows:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+</code></pre></div></div>
+
+<p>If we lazily search for our key in our memory dump we identify an interesting instance:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>xxd <span class="nt">-p</span> Snapshot1.vmem | <span class="nb">grep</span> <span class="nt">-A10</span> <span class="nt">-B10</span> 9f86d081884c7d659a2feaa0c55
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>00000000000000000000000000000000000000000000098f6bcd4621d373
+cade4e832627b4f600000000000000000000000000000000000000000000
+00000000000000000000b09952080000000081d0869f657d4c88a0ea2f9a
+15d05ac51b4fbfa32c820b2b156c5dd1080af0b040000000000000007465
+737480000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000
+00209f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15
+b0f00a08609b520800000000000000000000000000000000000000000000
+</code></pre></div></div>
+
+<p>The memory structure identified contains the md5 of our password, as well as our known encryption key some bytes above.</p>
+
+<p>Doing a similar search using the password hash from the challenge, we identify a similar structure in the challenge memory:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0000000000000000000000000000000000005135c956f0d1dbacaaaabebc
+7b3a659f0000000000000000000000000000000000000000000000000000
+0000000000009078a4090000000030506bbe15ea870ed58408daff8147e4
+280080bfad3db06db6e40ce0f40bad4c4000000000000000000000000000
+000000000000000000000000000000800000000000000000000000000000
+000000000000000000000000000000000000000000000000000000a8be6b
+50300e87ea15da0884d5e44781ffbf8000286db03dade00ce4b64cad0bf4
+407aa4090000000000000000000000000000000000000000000000000000
+</code></pre></div></div>
+
+<p>Based on our testing container, <code class="highlighter-rouge">be6b50300e87ea15da0884d5e44781ffbf8000286db03dade00ce4b64cad0bf4</code> appears to be the encryption key used by the challenge container.</p>
+
+<p>So, let’s try and mount the challenge container using the above identified key.</p>
+
+<p>We can create a device and specify a mapping table using <code class="highlighter-rouge">dmsetup</code>, for this we need the following table parameters:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>start size target cipher –mode-iv:type 256-bit key iv_offset device sector_offset
+</code></pre></div></div>
+
+<p>We can identify most of this information from the mapping settings in our similarly sized container, except the sector offset.</p>
+
+<p>Looking at the challenge container randomness with a hex editor we can identify that the file’s encryption offset appears to start at <code class="highlighter-rouge">0x200</code> or 512 bytes into the file. For <code class="highlighter-rouge">dmsetup</code> a sector is always defined as 512 bytes, so we can identify our new table as follows:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0 102399 crypt pilsung-cbc-essiv:sha256 be6b50300e87ea15da0884d5e44781ffbf8000286db03dade00ce4b64cad0bf4 0 /dev/loop2 1
+</code></pre></div></div>
+
+<p>Now we can mount the challenge container:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>losetup /dev/loop2 HITB
+dmsetup create HITB <span class="nt">--table</span> <span class="s1">'0 102399 crypt pilsung-cbc-essiv:sha256 be6b50300e87ea15da0884d5e44781ffbf8000286db03dade00ce4b64cad0bf4 0 /dev/loop2 1'</span> 
+mount <span class="nt">-o</span> rw <span class="nt">-t</span> ext3 /dev/mapper/HITB /mnt/HITB
+</code></pre></div></div>
+
+<p>Once mounted, we identify a single file in the container <code class="highlighter-rouge">flag_HITB.txt</code> which contained:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>HITB{4468eaa8a5d6fdbff208dac223afb81c}
+</code></pre></div></div>
+
+</div>
+<div id="related">
+  <h3>Recent Posts</h3>
+  <ul id="blog-posts" class="posts">
+    
+    <li>
+      <span>08 Jul 2018</span> <a href="/2018/07/08/solving-CTF-challenges-with-DLL-injection/">Solving CTF challenges with DLL injection</a>
+    </li>
+    
+    <li>
+      <span>17 Oct 2017</span> <a href="/2017/10/17/a-watering-hole-with-Windows-binaries/">A watering hole with Windows binaries</a>
+    </li>
+    
+    <li>
+      <span>03 Aug 2017</span> <a href="/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode/">Application whitelist bypass using XLL and embedded shellcode</a>
+    </li>
+    
+  </ul>
+</div>
+
+      <div class="footer">
+        <div class="disclaimer">
+  
+  <p>
+    The postings on this site are my own and don't represent my employer
+  </p>
+  
+</div>
+
+      </div>
+    </div>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox-plus-jquery.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox.min.js"></script>
+  <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+  <script>
+    (adsbygoogle = window.adsbygoogle || []).push({
+      google_ad_client: "ca-pub-5830883927534037",
+      enable_page_level_ads: true
+    });
+  </script>
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-41399516-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+
+</body>
+</html>

